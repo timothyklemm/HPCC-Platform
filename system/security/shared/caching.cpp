@@ -80,10 +80,11 @@ int CResPermissionsCache::lookup( IArrayOf<ISecResource>& resources, bool* pFoun
         {
             ResPermCacheEntry& resParamCacheEntry = (*it).second;
             const time_t timestamp = resParamCacheEntry.first;
+			bool ghostCredentialsInactive = !m_pParentCache->ghostCredentialsAreActive();
 
-            if (timestamp < tstamp)//entry was not stale during last cleanup but is stale now
+            if (ghostCredentialsInactive && (timestamp < tstamp))//entry was not stale during last cleanup but is stale now
                 *pFound++ = false;
-            else if(!m_pParentCache->isCacheEnabled() && m_pParentCache->isTransactionalEnabled())//m_pParentCache->getOriginalTimeout() == 0)
+            else if(ghostCredentialsInactive && !m_pParentCache->isCacheEnabled() && m_pParentCache->isTransactionalEnabled())//m_pParentCache->getOriginalTimeout() == 0)
             {
                 time_t tctime = getThreadCreateTime();
                 if(tctime <= 0 || timestamp < tctime)
@@ -272,6 +273,17 @@ void CPermissionsCache::remove(SecResourceType rtype, const char* resourcename)
 }
 
 
+bool CPermissionsCache::isCached(const char* username) const
+{
+	if (!username || !*username)
+		return false;
+
+	synchronized block(m_userCacheMonitor);
+	MapUserCache::const_iterator itr = m_userCache.find(username);
+
+	return ((itr != m_userCache.end()) && itr->second);
+}
+
 bool CPermissionsCache::lookup(ISecUser& sec_user)
 {
     if(!isCacheEnabled())
@@ -281,7 +293,7 @@ bool CPermissionsCache::lookup(ISecUser& sec_user)
     if(!username || !*username)
         return false;
 
-    synchronized block(m_userCacheMonitor); 
+	synchronized block(m_userCacheMonitor); 
 
     string key(username);
     MapUserCache::iterator it = m_userCache.find(key);
@@ -289,14 +301,17 @@ bool CPermissionsCache::lookup(ISecUser& sec_user)
         return false;
     CachedUser* user = (CachedUser*)(it->second);
 
-    time_t now;
-    time(&now);
-    if(user->getTimestamp() < (now - m_cacheTimeout))
-    {
-        m_userCache.erase(username);
-        delete user;
-        return false;
-    }
+	if (!ghostCredentialsAreActive())
+	{
+		time_t now;
+		time(&now);
+		if(user->getTimestamp() < (now - m_cacheTimeout))
+		{
+			m_userCache.erase(username);
+			delete user;
+			return false;
+		}
+	}
 
     const char* cachedpw = user->queryUser()->credentials().getPassword();
     StringBuffer pw(sec_user.credentials().getPassword());
@@ -312,7 +327,7 @@ bool CPermissionsCache::lookup(ISecUser& sec_user)
             sec_user.credentials().setPassword(pw.str());
             return true;
         }
-        else
+        else if (!ghostCredentialsAreActive())
         {
             m_userCache.erase(username);
             delete user;
@@ -596,4 +611,36 @@ void CPermissionsCache::flush()
     }
     m_lastManagedFileScopesRefresh = 0;
     m_defaultPermission = SecAccess_Unknown;//trigger refresh
+}
+
+
+bool CPermissionsCache::isAllowedRestrictedIp(ISecUser& sec_user, const string& ip) const
+{
+	synchronized block(m_userCacheMonitor);
+	MapUserCache::const_iterator itr = m_userCache.find(sec_user.getName());
+	bool allowed = false;
+
+	if ((itr != m_userCache.end()) && itr->second)
+	{
+		allowed = itr->second->isAllowedRestrictedIp(ip);
+	}
+
+	return allowed;
+}
+
+void CPermissionsCache::addAllowedRestrictedIp(ISecUser& sec_user, const string& ip)
+{
+	synchronized block(m_userCacheMonitor);
+	MapUserCache::iterator itr = m_userCache.find(sec_user.getName());
+	
+	if (itr == m_userCache.end())
+	{
+		add(sec_user);
+		itr = m_userCache.find(sec_user.getName());
+	}
+
+	if (itr != m_userCache.end() && itr->second)
+	{
+		itr->second->addAllowedRestrictedIp(ip);
+	}
 }

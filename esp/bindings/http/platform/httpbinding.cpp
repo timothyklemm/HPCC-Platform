@@ -509,7 +509,7 @@ bool EspHttpBinding::basicAuth(IEspContext* ctx)
     if(rlist == NULL)
         return false;
 
-    bool authenticated = m_secmgr->authorize(*user, rlist);
+    bool authenticated = m_secmgr->authorize(*user, rlist, ctx);
     if(!authenticated)
     {
         if (user->getAuthenticateStatus() == AS_PASSWORD_EXPIRED || user->getAuthenticateStatus() == AS_PASSWORD_VALID_BUT_EXPIRED)

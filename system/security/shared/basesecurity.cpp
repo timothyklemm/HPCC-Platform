@@ -47,6 +47,8 @@ CBaseSecurityManager::CBaseSecurityManager(const char *serviceName, IPropertyTre
 
 void CBaseSecurityManager::init(const char *serviceName, IPropertyTree *config)
 {
+	setCredentialServerAvailable(true);
+
     if(config == NULL)
         return;
     
@@ -91,9 +93,10 @@ void CBaseSecurityManager::init(const char *serviceName, IPropertyTree *config)
         }
     }
 
-    m_enableIPRoaming = config->getPropBool("@enableIPRoaming");
-    m_enableOTP = config->getPropBool("@enableOTP",false);
     m_passwordExpirationWarningDays = config->getPropInt(".//@passwordExpirationWarningDays", 10); //Default to 10 days
+
+	m_credentialServerReviveInterval = config->getPropInt("@credentialServerReviveInterval", 10) * 1000; // convert config seconds to milliseconds
+	m_allowGhostCredentials = config->getPropBool("@allowGhostCredentials", false);
 }
 
 CBaseSecurityManager::~CBaseSecurityManager()
@@ -135,8 +138,14 @@ bool CBaseSecurityManager::unsubscribe(ISecAuthenticEvents & events)
     return true;
 }
 
-bool CBaseSecurityManager::authorize(ISecUser & sec_user, ISecResourceList * Resources)
+bool CBaseSecurityManager::authorize(ISecUser & sec_user, ISecResourceList * Resources, IEspContext* ctx)
 {   
+	if (!isCredentialServerAvailable())
+	{
+		setCredentialServerAvailable(reviveCredentialServer());
+		m_permissionsCache.setGhostCredentialsActive(ghostCredentialsAreActive());
+	}
+
     if(sec_user.getAuthenticateStatus() != AS_AUTHENTICATED)
     {
         bool bOk = ValidateUser(sec_user);
@@ -146,7 +155,102 @@ bool CBaseSecurityManager::authorize(ISecUser & sec_user, ISecResourceList * Res
     return ValidateResources(sec_user,Resources);
 }
 
-bool CBaseSecurityManager::updateSettings(ISecUser &sec_user, ISecPropertyList* resources) 
+bool CBaseSecurityManager::updateSettings(ISecUser &sec_user, ISecPropertyList* resources)
+{
+	// Cannot update without without a server connection
+	if (!isCredentialServerAvailable())
+		return false;
+
+	CSecurityResourceList * reslist = (CSecurityResourceList*)resources;
+	if (!reslist)
+		return true;
+	IArrayOf<ISecResource>& rlist = reslist->getResourceList();
+	int nResources = rlist.length();
+	if (nResources <= 0)
+		return true;
+
+	bool rc = false;
+	if (m_permissionsCache.isCacheEnabled() == false)
+		return updateSettings(sec_user, rlist);
+
+	bool* cached_found = (bool*)alloca(nResources*sizeof(bool));
+	int nFound = m_permissionsCache.lookup(sec_user, rlist, cached_found);
+	if (nFound >= nResources)
+		return true;
+
+	IArrayOf<ISecResource> rlist2;
+	for (int i = 0; i < nResources; i++)
+	{
+		if (*(cached_found + i) == false)
+		{
+			ISecResource& secRes = rlist.item(i);
+			secRes.Link();
+			rlist2.append(secRes);
+		}
+	}
+	rc = updateSettings(sec_user, rlist2);
+	if (rc)
+		m_permissionsCache.add(sec_user, rlist2);
+	return rc;
+}
+
+bool CBaseSecurityManager::updateSettings(ISecUser & sec_user, IArrayOf<ISecResource>& rlist)
+{
+	CSecureUser* user = (CSecureUser*)&sec_user;
+	if (user == NULL)
+		return false;
+
+	int usernum = findUser(user->getName(), user->getRealm());
+	if (usernum < 0)
+	{
+		PrintLog("User number of %s can't be found", user->getName());
+		return false;
+	}
+
+	IArrayOf<ISecResource> batchList;
+	bool batched = supportBatchedSettings();
+
+	ForEachItemIn(x, rlist)
+	{
+		CSecurityResource* secRes = QUERYINTERFACE(&rlist.item(x), CSecurityResource);
+		if (!secRes)
+		{
+			continue;
+		}
+
+		//AccessFlags default value is -1. Set it to 0 so that the settings can be cached. AccessFlags is not being used for settings.
+		secRes->setAccessFlags(0);
+		if (batched)
+			secRes->setValue("-1");
+
+		// Only resources with "resource" parameters are of interest
+		const char* resource = secRes->getParameter("resource");
+		if (resource && *resource)
+		{
+			batchList.append(*secRes);
+		}
+	}
+	
+	if (batchList.length() > 0)
+	{
+		if (batched)
+		{
+			dbValidateSettings(sec_user, batchList, usernum, user->getRealm());
+		}
+		else
+		{
+			ForEachItemIn(y, batchList)
+			{
+				dbValidateSetting(sec_user, batchList.item(y), usernum, user->getRealm());
+			}
+		}
+	}
+
+	return true;
+}
+
+
+bool CBaseSecurityManager::ValidateResources(ISecUser & sec_user, ISecResourceList * resources, IEspContext* ctx)
 {
     CSecurityResourceList * reslist = (CSecurityResourceList*)resources;
     if(!reslist)
@@ -157,159 +261,7 @@ bool CBaseSecurityManager::updateSettings(ISecUser &sec_user, ISecPropertyList* 
         return true;
 
     bool rc = false;
-    if (m_permissionsCache.isCacheEnabled()==false)
-        return updateSettings(sec_user, rlist);
-
-    bool* cached_found = (bool*)alloca(nResources*sizeof(bool));
-    int nFound = m_permissionsCache.lookup(sec_user, rlist, cached_found);
-    if (nFound >= nResources)
-        return true;
-    
-    IArrayOf<ISecResource> rlist2;
-    for (int i=0; i < nResources; i++)
-    {
-        if (*(cached_found+i) == false)
-        {
-            ISecResource& secRes = rlist.item(i);
-            secRes.Link();
-            rlist2.append(secRes);
-        }
-    }
-    rc = updateSettings(sec_user, rlist2);
-    if (rc)
-        m_permissionsCache.add(sec_user, rlist2);
-    return rc;
-}
-
-bool CBaseSecurityManager::updateSettings(ISecUser & sec_user,IArrayOf<ISecResource>& rlist) 
-{
-    CSecureUser* user = (CSecureUser*)&sec_user;
-    if(user == NULL)
-        return false;
-
-    int usernum = findUser(user->getName(),user->getRealm());
-    if(usernum < 0)
-    {
-        PrintLog("User number of %s can't be found", user->getName());
-        return false;
-    }
-    bool sqchecked = false, sqverified = false, otpchecked = false;
-    int otpok = -1;
-    ForEachItemIn(x, rlist)
-    {
-        ISecResource* secRes = (ISecResource*)(&(rlist.item(x)));
-        if(secRes == NULL)
-            continue;
-        //AccessFlags default value is -1. Set it to 0 so that the settings can be cached. AccessFlags is not being used for settings.
-        secRes->setAccessFlags(0);
-        if(secRes->getParameter("userprop") && *secRes->getParameter("userprop")!='\0')
-        {
-            //if we have a parameter in the user or company table it will have been added as a parameter to the ISecUser when 
-            // the authentication query was run. We should keep this messiness here so that the the end user is insulated....
-            dbValidateSetting(*secRes,sec_user);
-            continue;
-        }
-
-        const char* resource_name = secRes->getParameter("resource");
-        if(resource_name && *resource_name && 
-            (stricmp(resource_name, "SSN Masking") == 0 || stricmp(resource_name, "Driver License Masking") == 0))
-        {
-            //If OTP Enabled and OTP2FACTOR cookie not valid, mask
-            if(m_enableOTP)
-            {
-                if(!otpchecked)
-                {
-                    const char* otpcookie = sec_user.getProperty("OTP2FACTOR");
-                    // -1 means OTP is not enabled for the user. 0: failed verfication, 1: passed verification.
-                    otpok = validateOTP(&sec_user, otpcookie);
-                    otpchecked = true;
-                }
-                if(otpok == 0)
-                {
-                    CSecurityResource* cres = dynamic_cast<CSecurityResource*>(secRes);
-                    if(resource_name && *resource_name && cres)
-                    {
-                        if(stricmp(resource_name, "SSN Masking") == 0)
-                        {
-                            cres->setValue("All");
-                            continue;
-                        }
-                        else if(stricmp(resource_name, "Driver License Masking") == 0)
-                        {
-                            cres->setValue("1");
-                            continue;
-                        }
-                    }
-                }
-                else if(otpok == 1)
-                {
-                    CSecurityResource* cres = dynamic_cast<CSecurityResource*>(secRes);
-                    if(resource_name && *resource_name && cres)
-                    {
-                        if(stricmp(resource_name, "SSN Masking") == 0)
-                        {
-                            cres->setValue("None");
-                            continue;
-                        }
-                        else if(stricmp(resource_name, "Driver License Masking") == 0)
-                        {
-                            cres->setValue("0");
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            if(m_enableIPRoaming && sec_user.getPropertyInt("IPRoaming") == 1)
-            {
-                if(!sqchecked)
-                {
-                    const char* sequest = sec_user.getProperty("SEQUEST");
-                    if(sequest && *sequest)
-                    {
-                        sqverified = validateSecurityQuestion(&sec_user, sequest);
-                    }
-                    sqchecked = true;
-                }
-                if(!sqverified)
-                {
-                    CSecurityResource* cres = dynamic_cast<CSecurityResource*>(secRes);
-                    if(resource_name && *resource_name && cres)
-                    {
-                        if(stricmp(resource_name, "SSN Masking") == 0)
-                        {
-                            cres->setValue("All");
-                            continue;
-                        }
-                        else if(stricmp(resource_name, "Driver License Masking") == 0)
-                        {
-                            cres->setValue("1");
-                            continue;
-                        }
-                    }
-                }
-            }
-
-        }
-
-        dbValidateSetting(*secRes,usernum,user->getRealm());
-    }
-    return true;
-}
-
-
-bool CBaseSecurityManager::ValidateResources(ISecUser & sec_user, ISecResourceList * resources)
-{
-    CSecurityResourceList * reslist = (CSecurityResourceList*)resources;
-    if(!reslist)
-        return true;
-    IArrayOf<ISecResource>& rlist = reslist->getResourceList();
-    int nResources = rlist.length();
-    if (nResources <= 0)
-        return true;
-
-    bool rc = false;
-    if (m_permissionsCache.isCacheEnabled()==false)
+    if (isCredentialServerAvailable() && m_permissionsCache.isCacheEnabled()==false)
         return ValidateResources(sec_user, rlist);
 
     bool* cached_found = (bool*)alloca(nResources*sizeof(bool));
@@ -318,6 +270,11 @@ bool CBaseSecurityManager::ValidateResources(ISecUser & sec_user, ISecResourceLi
     {
         return true;
     }
+
+	// Don't go any further if we're forcing the use of the cache, as the rest of the
+	// code reads from the database.
+	if (!isCredentialServerAvailable())
+		return false;
 
     IArrayOf<ISecResource> rlist2;
     for (int i=0; i < nResources; i++)
@@ -366,59 +323,22 @@ static bool stringDiff(const char* str1, const char* str2)
     }
 }
 
-bool CBaseSecurityManager::ValidateUser(ISecUser & sec_user)
+bool CBaseSecurityManager::ValidateUser(ISecUser & sec_user, IEspContext* ctx)
 {
-    StringBuffer clientip(sec_user.getPeer());
-    StringBuffer otpbuf, sqbuf;
-    if(m_enableOTP)
-    {
-        otpbuf.append(sec_user.getProperty("OTP2FACTOR"));
-    }
-    if(m_enableIPRoaming)
-    {
-        sqbuf.append(sec_user.getProperty("SEQUEST"));
-    }
-    if(m_permissionsCache.isCacheEnabled() && m_permissionsCache.lookup(sec_user))
-    {
-        bool bReturn = true;
-        if(IsIPRestricted(sec_user))
-        {
-            const char* cachedclientip = sec_user.getPeer();
-            if(clientip.length() > 0 && cachedclientip && strncmp(clientip.str(), cachedclientip , clientip.length()) != 0)
-            {
-                //we seem to be coming from a different peer... this is not good
-                WARNLOG("Found user %d in cache, but have to re-validate IP, because it was coming from %s but is now coming from %s",sec_user.getUserID(), cachedclientip, clientip.str());
-                sec_user.setAuthenticateStatus(AS_INVALID_CREDENTIALS);
-                sec_user.setPeer(clientip.str());
-                m_permissionsCache.removeFromUserCache(sec_user);
-                bReturn =  false;
-            }
-        }
+	if (ValidateUserInCache(sec_user, ctx))
+		return true;
 
-        if(m_enableOTP)
-        {
-            const char* old_otp = sec_user.getProperty("OTP2FACTOR");
-            if(stringDiff(old_otp, otpbuf.str()))
-                bReturn = false;
-        }
-        if(m_enableIPRoaming)
-        {
-            const char* old_sq = sec_user.getProperty("SEQUEST");
-            if(stringDiff(old_sq, sqbuf.str()))
-                bReturn = false;
-        }
-
-        if(bReturn)
-        {
-            sec_user.setAuthenticateStatus(AS_AUTHENTICATED);
-            return true;
-        }
-    }
+	// Cache validation failed and database is unavailable.
+	if (ghostCredentialsAreActive())
+	{
+		sec_user.setAuthenticateStatus(AS_UNEXPECTED_ERROR);
+		return false;
+	}
 
     if(!IsPasswordValid(sec_user))
     {
         ERRLOG("Password validation failed for user: %s",sec_user.getName());
-        return false;
+		return false;
     }
     else
     {
@@ -430,12 +350,45 @@ bool CBaseSecurityManager::ValidateUser(ISecUser & sec_user)
                 sec_user.setAuthenticateStatus(AS_INVALID_CREDENTIALS);
                 return false;
             }
+
+			if (m_permissionsCache.isCacheEnabled())
+				m_permissionsCache.addAllowedRestrictedIp(sec_user, sec_user.getPeer());
         }
-        if(m_permissionsCache.isCacheEnabled())
-            m_permissionsCache.add(sec_user);
+		else
+		{
+			updateUserRoaming(sec_user);
+			if (m_permissionsCache.isCacheEnabled())
+				m_permissionsCache.add(sec_user);
+		}
+
         sec_user.setAuthenticateStatus(AS_AUTHENTICATED);
     }
     return true;
+}
+
+bool CBaseSecurityManager::ValidateUserInCache(ISecUser & sec_user, IEspContext* ctx)
+{
+	bool bReturn = false;
+
+	if (m_permissionsCache.isCacheEnabled() && m_permissionsCache.lookup(makeQualifiedUser(sec_user)))
+	{
+		StringBuffer clientip(sec_user.getPeer());
+		if (IsIPRestricted(sec_user) && !m_permissionsCache.isAllowedRestrictedIp(sec_user, clientip.str()))
+		{
+			//we seem to be coming from a different peer... this is not good
+			WARNLOG("Found user %d in cache, but have to re-validate IP, because it was coming from %s but is now coming from %s", sec_user.getUserID(), sec_user.getPeer(), clientip.str());
+			sec_user.setAuthenticateStatus(AS_INVALID_CREDENTIALS);
+			sec_user.setPeer(clientip.str());
+			m_permissionsCache.removeFromUserCache(sec_user);
+		}
+		else
+		{
+			sec_user.setAuthenticateStatus(AS_AUTHENTICATED);
+			bReturn = true;
+		}
+	}
+
+	return bReturn;
 }
 
 bool CBaseSecurityManager::IsPasswordValid(ISecUser& sec_user)
@@ -493,7 +446,7 @@ int CBaseSecurityManager::getUserID(ISecUser& user)
     return findUser(user.getName(),user.getRealm());
 }
 
-bool CBaseSecurityManager::ValidateResources(ISecUser & sec_user,IArrayOf<ISecResource>& rlist)
+bool CBaseSecurityManager::ValidateResources(ISecUser & sec_user,IArrayOf<ISecResource>& rlist, IEspContext* ctx)
 {
     CSecureUser* user = (CSecureUser*)&sec_user;
     if(user == NULL)
@@ -511,7 +464,7 @@ bool CBaseSecurityManager::ValidateResources(ISecUser & sec_user,IArrayOf<ISecRe
         ISecResource* res = (ISecResource*)(&(rlist.item(x)));
         if(res == NULL)
             continue;
-        dbValidateResource(*res,usernum,user->getRealm());
+        dbValidateResource(sec_user, *res,usernum,user->getRealm(), ctx);
     }
 
     return true;
@@ -594,6 +547,81 @@ int CBaseSecurityManager::findUser(const char* user,const char* realm)
 
 
 
+void CBaseSecurityManager::setDefaultDomainName(const char* domainName)
+{
+	if (domainName && strchr(domainName, ','))
+		throw MakeStringException(-1, "default domain name (%s) cannot contain ','", domainName);
+
+	m_defaultDomainName.set(domainName);
+}
+
+ISecUser& CBaseSecurityManager::makeQualifiedUser(ISecUser& sec_user) const
+{
+	const char* username = sec_user.getName();
+	StringBuffer qualifiedUsername;
+	bool cached = false;
+
+	if (const_cast<CPermissionsCache&>(m_permissionsCache).isCacheEnabled() &&
+		!m_permissionsCache.isCached(username) &&
+		getQualifiedUsername(username, qualifiedUsername) &&
+		m_permissionsCache.isCached(qualifiedUsername))
+	{
+		sec_user.setName(qualifiedUsername);
+	}
+
+	return sec_user;
+
+}
+
+bool CBaseSecurityManager::getQualifiedUsername(const char* username, StringBuffer& qualifiedUsername) const
+{
+	const char*  defaultDomain = getDefaultDomainName();
+	const char*  delimiter = NULL;
+	bool         changed = false;
+
+	qualifiedUsername.set(username);
+
+	if (!defaultDomain || !*defaultDomain) // no default domain ==> no qualification required
+	{
+	}
+	else if (!username || !*username) // no username ==> no qualification possible
+	{
+	}
+	else if ((delimiter = strchr(username, '@')) == NULL) // <username> ==> add @<default domain>
+	{
+		qualifiedUsername.appendf("@%s", defaultDomain);
+		changed = true;
+	}
+	else if (!*(delimiter + 1)) // <username>@ ==> add <default domain>
+	{
+		qualifiedUsername.append(defaultDomain);
+		changed = true;
+	}
+	else // <username>@<domain> ==> already qualified
+	{
+	}
+
+	return changed;
+}
+
+bool CBaseSecurityManager::updateUserRoaming(ISecUser& sec_user) const
+{
+	IPList::const_iterator it = m_safeIPList.find(sec_user.getPeer());
+	bool result = ((it != m_safeIPList.end()) && (it->second == true));
+
+	if (result)
+	{
+		sec_user.setPropertyInt("IPRoaming", 0);
+	}
+
+	return result;
+}
+
+bool CBaseSecurityManager::isUserCached(ISecUser& sec_user) const
+{
+	CPermissionsCache& cache = const_cast<CPermissionsCache&>(m_permissionsCache);
+	return (cache.isCacheEnabled() && cache.lookup(makeQualifiedUser(sec_user)));
+}
 
 
 //#endif //_WIN32

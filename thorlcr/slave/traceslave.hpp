@@ -18,7 +18,9 @@
 #ifndef TRACESLAVE_HPP
 #define TRACESLAVE_HPP
 
-#include <sys/time.h>
+#if !defined(_WIN32)
+#include <sys/utime.h>
+#endif
 #include "thmem.hpp"
 
 class tm;
@@ -40,15 +42,48 @@ private:
         }
         inline void getTimeStamp(StringBuffer &retTimeStamp) const
         {
+#if defined(_WIN32)
+			typedef long suseconds_t;
+			struct timeval
+			{
+				time_t      tv_sec;
+				suseconds_t tv_usec;
+			};
+#endif
+
             struct timeval tvNow, tvAdjust, tvResult;
             struct tm tm;
 
+#if defined(_WIN32)
+			static const unsigned __int64 epoch = ((unsigned __int64)116444736000000000ULL);
+			FILETIME       file_time;
+			SYSTEMTIME     system_time;
+			ULARGE_INTEGER ularge;
+
+			GetSystemTime(&system_time);
+			SystemTimeToFileTime(&system_time, &file_time);
+			ularge.LowPart = file_time.dwLowDateTime;
+			ularge.HighPart = file_time.dwHighDateTime;
+			tvNow.tv_sec = (long)((ularge.QuadPart - epoch) / 10000000L);
+			tvNow.tv_usec = (long)(system_time.wMilliseconds * 1000);
+#else
             gettimeofday(&tvNow, NULL);
+#endif
 
             const __int64 diffUSec = cycle_to_microsec(get_cycles_now() - cycleStamp);
             tvAdjust.tv_sec = diffUSec / 1000000;
             tvAdjust.tv_usec = diffUSec % 1000000;
-            timersub(&tvNow, &tvAdjust, &tvResult);
+#if defined(_WIN32)
+			tvResult.tv_sec = tvNow.tv_sec - tvAdjust.tv_sec;
+			tvResult.tv_usec = tvNow.tv_usec - tvAdjust.tv_usec;
+			if (tvResult.tv_usec < 0)
+			{
+				tvResult.tv_sec--;
+				tvResult.tv_usec += 1000000;
+			}
+#else
+			timersub(&tvNow, &tvAdjust, &tvResult);
+#endif
 
             localtime_r(&tvResult.tv_sec, &tm);
             retTimeStamp.setf("%d:%02d:%02d.%d", tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(tvResult.tv_usec/1000));

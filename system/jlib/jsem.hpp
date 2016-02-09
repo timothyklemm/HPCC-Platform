@@ -73,6 +73,42 @@ public:
     {
         ReleaseSemaphore(hSem,count,NULL);
     }
+
+#ifdef _DEBUG
+	int queryCount()
+	{
+		typedef LONG(NTAPI *_NtQuerySemaphore)(
+			HANDLE SemaphoreHandle,
+			DWORD SemaphoreInformationClass, /* Would be SEMAPHORE_INFORMATION_CLASS */
+			PVOID SemaphoreInformation,      /* but this is to much to dump here     */
+			ULONG SemaphoreInformationLength,
+			PULONG ReturnLength OPTIONAL
+			);
+
+		typedef struct _SEMAPHORE_BASIC_INFORMATION {
+			ULONG CurrentCount;
+			ULONG MaximumCount;
+		} SEMAPHORE_BASIC_INFORMATION;
+
+		static _NtQuerySemaphore NtQuerySemaphore = NULL;
+		if (NtQuerySemaphore == NULL)
+			NtQuerySemaphore = (_NtQuerySemaphore)GetProcAddress(GetModuleHandle("ntdll.dll"), "NtQuerySemaphore");
+
+		if (NtQuerySemaphore)
+		{
+			SEMAPHORE_BASIC_INFORMATION BasicInfo;
+
+			LONG Status = NtQuerySemaphore(hSem, 0 /*SemaphoreBasicInformation*/,
+				&BasicInfo, sizeof(SEMAPHORE_BASIC_INFORMATION), NULL);
+
+			if (Status == ERROR_SUCCESS)
+				return BasicInfo.CurrentCount;
+		}
+
+		return -1; // error occur
+	}
+#endif
+
 protected:
     HANDLE hSem;
 
@@ -142,6 +178,13 @@ public:
     void signal();
     void signal(unsigned count);
     void reinit(unsigned initialCount=0U);
+#ifdef _DEBUG
+	int queryCount()
+	{
+		int myvount = count;
+		return mycount > 0 ? mycount : 0;
+	}
+#endif
 #ifndef USE_OLD_SEMAPHORE_CODE
 protected:
     sem_t sem;

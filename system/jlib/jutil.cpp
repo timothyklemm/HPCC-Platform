@@ -2697,6 +2697,33 @@ jlib_decl StringBuffer &getTempFilePath(StringBuffer & target, const char * comp
     return target.set(dir);
 }
 
+// Get the full path of a module (DLL or Exe)
+#ifdef _WIN32
+jlib_decl bool getModuleFullPath(StringBuffer& out, const char* dllName)
+{
+	HMODULE hDll = LoadLibrary(dllName);
+	if (!hDll)
+		return false;
+
+	char path[1024];
+	bool ret = false;
+	if (GetModuleFileName(hDll, path, 1024))
+	{
+		out.append(path);
+		ret = true;
+	}
+
+	FreeLibrary(hDll);
+
+	return ret;
+}
+#else
+jlib_decl bool getModuleFullPath(StringBuffer& out, const char* dllName)
+{
+	return false; // unimplemented yet!
+}
+#endif
+
 jlib_decl const char *getEnumText(int value, const mapEnums *map)
 {
     const char *defval = map->str;

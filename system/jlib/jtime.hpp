@@ -197,6 +197,81 @@ public:
     }
 };
 
+class jlib_decl CumulativeTimer : public CInterface
+{
+public:
+
+	CumulativeTimer()
+		: mNestingDepth(0)
+		, mTotalTime(0)
+	{
+	}
+
+	CumulativeTimer(const CumulativeTimer& t)
+		: mNestingDepth(t.mNestingDepth)
+		, mTotalTime(t.mTotalTime)
+	{}
+
+	~CumulativeTimer()
+	{
+	}
+
+	inline unsigned __int64 getTotalMillis() const { return mTotalTime; }
+	inline void reset() { mTotalTime = 0; }
+
+	IMPLEMENT_IINTERFACE;
+
+public:
+
+	struct Scope
+	{
+		Scope(CumulativeTimer* t)
+			: mTimer(t), mStart(0)
+		{
+			if (mTimer)
+				mTimer->incNesting();
+			mStart = msTick();
+		}
+
+		~Scope()
+		{
+			if (mTimer)
+			{
+				mTimer->decNesting();
+				mTimer->add(msTick() - mStart);
+			}
+		}
+
+	private:
+		unsigned __int64	mStart;
+		CumulativeTimer*	mTimer;
+
+	private:
+		Scope(const Scope& t);
+		Scope& operator =(const Scope&);
+	};
+
+	void add(unsigned __int64 delta)
+	{
+		if (mNestingDepth == 0)
+			mTotalTime += delta;
+	}
+
+private:
+	friend struct CumulativeTimer::Scope;
+
+	inline void incNesting() { ++mNestingDepth; }
+	inline void decNesting() { --mNestingDepth; }
+
+	unsigned __int64 mNestingDepth;
+	unsigned __int64 mTotalTime;
+
+private:
+	CumulativeTimer& operator =(const CumulativeTimer&);
+};
+
+typedef CumulativeTimer* (*CumulativeTimerFetchFunc)(const char* name);
+
 extern jlib_decl IJlibDateTime * createDateTime();
 extern jlib_decl IJlibDateTime * createDateTimeNow();
 extern jlib_decl void serializeDateTime(MemoryBuffer & tgt);

@@ -69,6 +69,7 @@ set (    SRCS
          jregexp.cpp 
          jsem.cpp 
          jset.cpp 
+		 jsha2.cpp 
          jsmartsock.cpp 
          jsocket.cpp 
          jsort.cpp 
@@ -138,6 +139,8 @@ set (    INCLUDES
         jscm.hpp
         jsem.hpp
         jset.hpp
+		jsha2.hpp
+		jsha2.ipp
         jsmartsock.hpp
         jsmartsock.ipp
         jsocket.hpp

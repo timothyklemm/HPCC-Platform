@@ -126,8 +126,6 @@ protected:
     Owned<IPropertyTree>        m_config;
     CriticalSection             _cache_Section;
     IPList                      m_safeIPList;
-    bool                        m_enableIPRoaming;
-    bool                        m_enableOTP;
 public:
     IMPLEMENT_IINTERFACE
 
@@ -140,12 +138,12 @@ public:
     ISecResourceList * createResourceList(const char * rlname);
     bool subscribe(ISecAuthenticEvents & events);
     bool unsubscribe(ISecAuthenticEvents & events);
-    bool virtual authorize(ISecUser & sec_user, ISecResourceList * Resources);
-    bool authorizeEx(SecResourceType rtype, ISecUser& sec_user, ISecResourceList * Resources)
+    bool virtual authorize(ISecUser & sec_user, ISecResourceList * Resources, IEspContext* ctx);
+    bool authorizeEx(SecResourceType rtype, ISecUser& sec_user, ISecResourceList * Resources, IEspContext* ctx)
     {
-        return authorize(sec_user, Resources);
+        return authorize(sec_user, Resources, ctx);
     }
-    int authorizeEx(SecResourceType rtype, ISecUser& sec_user, const char* resourcename)
+    int authorizeEx(SecResourceType rtype, ISecUser& sec_user, const char* resourcename, IEspContext* ctx)
     {
         if(!resourcename || !*resourcename)
             return SecAccess_Full;
@@ -154,7 +152,7 @@ public:
         rlist.setown(createResourceList("resources"));
         rlist->addResource(resourcename);
         
-        bool ok = authorizeEx(rtype, sec_user, rlist.get());
+        bool ok = authorizeEx(rtype, sec_user, rlist.get(), ctx);
         if(ok)
             return rlist->queryResource(0)->getAccessFlags();
         else
@@ -180,7 +178,7 @@ public:
     {
         UNIMPLEMENTED;
     }
-    virtual bool ValidateSourceIP(ISecUser & user,IPList& SafeIPList)
+    virtual bool ValidateSourceIP(ISecUser & user,IPList& SafeIPList, IEspContext *ctx = NULL)
     {
         return true;
     }
@@ -302,28 +300,29 @@ protected:
     void init(const char *serviceName, IPropertyTree *config);
 
     void EncodePassword(StringBuffer& password);
-    bool ValidateResources(ISecUser & sec_user,IArrayOf<ISecResource>& rlist);
-    bool updateSettings(ISecUser & sec_user,IArrayOf<ISecResource>& rlist);
+    bool ValidateResources(ISecUser & sec_user,IArrayOf<ISecResource>& rlist, IEspContext* ctx = NULL);
+    virtual bool updateSettings(ISecUser & sec_user,IArrayOf<ISecResource>& rlist);
 
-    virtual bool ValidateUser(ISecUser & sec_user);
-    virtual bool ValidateResources(ISecUser & sec_user, ISecResourceList * Resources);
+    virtual bool ValidateUser(ISecUser & sec_user, IEspContext* ctx = NULL);
+	virtual bool ValidateUserInCache(ISecUser & sec_user, IEspContext* ctx = NULL);
+    virtual bool ValidateResources(ISecUser & sec_user, ISecResourceList * Resources, IEspContext* ctx = NULL);
 
-    virtual StringBuffer& buildAuthenticateQuery(const char* user,const char* password,const char* realm, StringBuffer& SQLQuery){return SQLQuery;}
+    virtual StringBuffer& buildAuthenticateQuery(const char* user,const char* password,const char* realm, StringBuffer& SQLQuery, IEspContext* ctx = NULL){return SQLQuery;}
 
-    virtual bool dbValidateResource(ISecResource& res,int usernum,const char* realm)
+    virtual bool dbValidateResource(ISecUser& sec_user, ISecResource& res,int usernum,const char* realm, IEspContext *ctx = NULL)
     {
         return false;
     }
-    virtual bool dbValidateSetting(ISecResource& res,int usernum,const char* realm)
+    virtual bool dbValidateSetting(ISecUser& sec_user, ISecResource& res,int usernum,const char* realm, IEspContext *ctx = NULL)
     {
         return false;
     }
-    virtual bool dbValidateSetting(ISecResource& res,ISecUser& User)
+    virtual bool dbValidateSetting(ISecResource& res,ISecUser& User, IEspContext *ctx = NULL)
     {
         return false;
     }
 
-    virtual bool dbUpdateResource(ISecResource& res,int usernum,const char* Realm)
+    virtual bool dbUpdateResource(ISecResource& res,int usernum,const char* Realm, IEspContext *ctx = NULL)
     {
         return false;
     }
@@ -336,7 +335,7 @@ protected:
         return false;
     }
 
-    virtual bool dbauthenticate(ISecUser& User, StringBuffer& SQLQuery)
+    virtual bool dbauthenticate(ISecUser& User, StringBuffer& SQLQuery, IEspContext *ctx = NULL)
     {
         return false;
     }
@@ -345,11 +344,11 @@ protected:
     {
         return 0;
     }
-    virtual bool dbUpdatePasswrd(const char* user,const char* realm,const char* password)
+    virtual bool dbUpdatePasswrd(const char* user,const char* realm,const char* password, IEspContext *ctx = NULL)
     {
         return false;
     }
-    virtual StringBuffer& dbGetEffectiveAccess(int usernum, const char * resource, const char * member, const char * objclass,StringBuffer& returnValue)
+    virtual StringBuffer& dbGetEffectiveAccess(ISecUser& sec_user, int usernum, const char * resource, const char * member, const char * objclass,StringBuffer& returnValue, IEspContext *ctx = NULL)
     {
         returnValue.appendf("%d",-1);
         return returnValue;
@@ -372,14 +371,57 @@ protected:
         return false;
     }
 
-    virtual bool validateSecurityQuestion(ISecUser* user, const char* token)
-    {
-        return false;
-    }
-    virtual int validateOTP(ISecUser* user, const char* cookie)
-    {
-        return 0;
-    }
+// ========== Default Domain Management ==========
+protected:
+	// Returns the current default domain.
+	const char* getDefaultDomainName() const { return m_defaultDomainName; }
+	
+	// Sets the default domain, after ensuring it is a single domain instead of a list.
+	// Subclasses must override to support multiple domains.
+	virtual void setDefaultDomainName(const char* domainName);
+
+	// Generates a qualified name (<username>@<domain>) from an unqualified name
+	// (<username>). If the configuration does not specify a default domain, the
+	// username is unchanged. If the username is already qualified, it is unchanged.
+	//
+	// Returns true if the qualified name differs from the unqualified name.
+	bool getQualifiedUsername(const char* username, StringBuffer& qualifiedUsername) const;
+
+	ISecUser& makeQualifiedUser(ISecUser& sec_user) const;
+private:
+	StringBuffer m_defaultDomainName;
+
+// ========== Ghost Credentials ==========
+protected:
+	bool getAllowGhostCredentials() const { return m_allowGhostCredentials; }
+	bool isCredentialServerAvailable() const { return m_credentialServerAvailable; }
+	void setCredentialServerAvailable(bool available) { m_credentialServerAvailable = available; }
+	bool ghostCredentialsAreActive() const { return (m_allowGhostCredentials && !m_credentialServerAvailable); }
+	int  getCredentialServerReviveInterval() const { return m_credentialServerReviveInterval; }
+	virtual bool reviveCredentialServer() { return false; }
+	// subclasses may, for legacy purposes, need to update the config overrides during their own initialization
+	void setAllowGhostCredentials(bool allow) { m_allowGhostCredentials = allow; }
+	void setCredentialServerReviveInterval(int intervalSeconds) { m_credentialServerReviveInterval = (intervalSeconds > 0 ? intervalSeconds : 10) * 1000; }
+
+private:
+	bool m_allowGhostCredentials; // coded default with config override, not changed
+	bool m_credentialServerAvailable; // coded default to true, set to false by subclasses, and reset by this class
+	int  m_credentialServerReviveInterval; // coded default with config override, not changed
+
+
+// ========== Batch Setting Updates ==========
+protected:
+	virtual bool supportBatchedSettings() const { return false; }
+	virtual bool dbValidateSettings(ISecUser& user, IArrayOf<ISecResource> &rlist, int usernum, const char* realm, IEspContext *ctx = NULL) { return false; }
+
+
+// ========== Miscellaneous ==========
+protected:
+	// Updates the "IPRoaming" property. The base class sets the property to zero and returns true when the user's peer is in
+	// the safe IP list. Subclasses may extend or replace this behavior as needed.
+	virtual bool updateUserRoaming(ISecUser& sec_user) const;
+	virtual bool getUserProperty(ISecResource& res, ISecUser& User) { return false; }
+	bool isUserCached(ISecUser& sec_user) const;
 };
 
 #endif // BASESECURITY_INCL

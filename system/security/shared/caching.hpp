@@ -23,6 +23,7 @@
 #include "seclib.hpp"
 #undef new
 #include <map>
+#include <set>
 #include <string>
 #if defined(_DEBUG) && defined(_WIN32) && !defined(USING_MPATROL)
  #define new new(_NORMAL_BLOCK, __FILE__, __LINE__)
@@ -31,6 +32,7 @@
 using std::pair;
 using std::map;
 using std::multimap;
+using std::set;
 using std::string;
 
 //Define type of cache entry stored for each resource (in each user specific cache).
@@ -98,6 +100,8 @@ class CachedUser
 private:
     Owned<ISecUser> m_user;
     time_t          m_timestamp;
+	set<string>     m_allowedRestrictedIpCache;
+	mutable Monitor m_ipCacheMonitor;
 public:
     CachedUser(ISecUser* user)
     {
@@ -130,6 +134,18 @@ public:
     {
         m_timestamp = timestamp;
     }
+
+	bool isAllowedRestrictedIp(const string& ip) const
+	{
+		synchronized block(m_ipCacheMonitor);
+		return (m_allowedRestrictedIpCache.find(ip) != m_allowedRestrictedIpCache.end());
+	}
+
+	void addAllowedRestrictedIp(const string& ip)
+	{
+		synchronized block(m_ipCacheMonitor);
+		m_allowedRestrictedIpCache.insert(ip);
+	}
 };
 
 // main cache that stores all user-specific caches (defined by CResPermissionsCache above)
@@ -144,6 +160,7 @@ public:
         m_secMgr = NULL;
         m_lastManagedFileScopesRefresh = 0;
         m_defaultPermission = SecAccess_Unknown;
+		m_ghostCredentialsActive = false;
     }
     virtual ~CPermissionsCache();
 
@@ -164,6 +181,7 @@ public:
     virtual void add (ISecUser& sec_user);
     virtual void removeFromUserCache(ISecUser& sec_user);
 
+	bool  isCached(const char* username) const;
     void  setCacheTimeout(int timeout) { m_cacheTimeout = timeout; }
     const int getCacheTimeout() { return m_cacheTimeout; }
     bool  isCacheEnabled() { return m_cacheTimeout > 0; }
@@ -176,6 +194,18 @@ public:
     bool queryPermsManagedFileScope(ISecUser& sec_user, const char * fullScope, StringBuffer& managedScope, int * accessFlags);
     void setSecManager(ISecManager * secMgr) { m_secMgr = secMgr; }
     int  queryDefaultPermission(ISecUser& user);
+
+	// restricted IP support
+	bool isAllowedRestrictedIp(ISecUser& sec_user, const string& ip) const;
+	void addAllowedRestrictedIp(ISecUser& sec_user, const string& ip);
+
+// ========== Ghost Credentials ==========
+public:
+	bool ghostCredentialsAreActive() const { return (atomic_read(&m_ghostCredentialsActive) != false); }
+	void setGhostCredentialsActive(bool active) { atomic_set(&m_ghostCredentialsActive, active ? 1 : 0); }
+private:
+	atomic_t m_ghostCredentialsActive;
+
 private:
 
     typedef std::map<string, CResPermissionsCache*> MapResPermissionsCache;
@@ -189,7 +219,7 @@ private:
     bool m_transactionalEnabled;
 
     MapUserCache m_userCache;
-    Monitor m_userCacheMonitor;
+    mutable Monitor m_userCacheMonitor;
 
 
     //Managed File Scope support

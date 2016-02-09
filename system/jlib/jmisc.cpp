@@ -994,3 +994,37 @@ jlib_decl bool getHomeDir(StringBuffer & homepath)
     homepath.append(home);
     return true;
 }
+
+#ifdef _WIN32
+
+#include <delayimp.h>
+
+jlib_decl LONG DelayLoadDllExceptionFilter(PEXCEPTION_POINTERS pExcPointers)
+{
+	LONG lDisposition = EXCEPTION_EXECUTE_HANDLER;
+	PDelayLoadInfo pDelayLoadInfo = PDelayLoadInfo(pExcPointers->ExceptionRecord->ExceptionInformation[0]);
+
+	switch (pExcPointers->ExceptionRecord->ExceptionCode)
+	{
+	case VcppException(ERROR_SEVERITY_ERROR, ERROR_MOD_NOT_FOUND):
+		throw MakeStringException(-1, "DLL %s was not found. Is it in your path?", pDelayLoadInfo->szDll);
+		break;
+
+	case VcppException(ERROR_SEVERITY_ERROR, ERROR_PROC_NOT_FOUND):
+		if (pDelayLoadInfo->dlp.fImportByName)
+			throw MakeStringException(-1, "Function %s was not found in %s. Wrong version of the library in your path?",
+				pDelayLoadInfo->dlp.szProcName, pDelayLoadInfo->szDll);
+		else
+			throw MakeStringException(-1, "Function ordinal %lu was not found in %s. Wrong version of the library in your path?", pDelayLoadInfo->dlp.dwOrdinal, pDelayLoadInfo->szDll);
+		break;
+
+	default:
+		// Exception is not related to delay loading
+		lDisposition = EXCEPTION_CONTINUE_SEARCH;
+		break;
+	}
+
+	return(lDisposition);
+}
+
+#endif

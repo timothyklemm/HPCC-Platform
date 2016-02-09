@@ -273,9 +273,9 @@ interface ISecManager : extends IInterface
     virtual ISecResourceList * createResourceList(const char * rlname) = 0;
     virtual bool subscribe(ISecAuthenticEvents & events) = 0;
     virtual bool unsubscribe(ISecAuthenticEvents & events) = 0;
-    virtual bool authorize(ISecUser & user, ISecResourceList * resources) = 0;
-    virtual bool authorizeEx(SecResourceType rtype, ISecUser & user, ISecResourceList * resources) = 0;
-    virtual int authorizeEx(SecResourceType rtype, ISecUser & user, const char * resourcename) = 0;
+    virtual bool authorize(ISecUser & user, ISecResourceList * resources, interface IEspContext* ctx = NULL) = 0;
+    virtual bool authorizeEx(SecResourceType rtype, ISecUser & user, ISecResourceList * resources, interface IEspContext* ctx = NULL) = 0;
+    virtual int authorizeEx(SecResourceType rtype, ISecUser & user, const char * resourcename, interface IEspContext* ctx = NULL) = 0;
     virtual int getAccessFlagsEx(SecResourceType rtype, ISecUser & user, const char * resourcename) = 0;
     virtual int authorizeFileScope(ISecUser & user, const char * filescope) = 0;
     virtual bool authorizeFileScope(ISecUser & user, ISecResourceList * resources) = 0;
