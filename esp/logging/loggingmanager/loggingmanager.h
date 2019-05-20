@@ -61,6 +61,7 @@ interface ILoggingManager : implements IInterface
     virtual bool getTransactionSeed(StringBuffer& transactionSeed, StringBuffer& status) = 0;
     virtual bool getTransactionSeed(IEspGetTransactionSeedRequest& req, IEspGetTransactionSeedResponse& resp) = 0;
     virtual bool getTransactionID(StringAttrMapping* transFields, StringBuffer& transactionID, StringBuffer& status) = 0;
+    virtual IEspLogAgentVariantIterator* getAgentVariants() const = 0;
 };
 
 typedef ILoggingManager* (*newLoggingManager_t_)();

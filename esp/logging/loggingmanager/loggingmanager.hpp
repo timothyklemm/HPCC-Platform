@@ -105,6 +105,23 @@ public:
     virtual bool getTransactionSeed(StringBuffer& transactionSeed, StringBuffer& status);
     virtual bool getTransactionSeed(IEspGetTransactionSeedRequest& req, IEspGetTransactionSeedResponse& resp);
     virtual bool getTransactionID(StringAttrMapping* transFields, StringBuffer& transactionID, StringBuffer& status);
+    IEspLogAgentVariantIterator* getAgentVariants() const override;
+
+protected:
+    class CVariantIterator : implements CInterfaceOf<const IEspLogAgentVariantIterator>
+    {
+    public:
+        CVariantIterator(const CLoggingManager& manager);
+        ~CVariantIterator();
+        bool first() override;
+        bool next() override;
+        bool isValid() override;
+        const IEspLogAgentVariant & query() override;
+    protected:
+        Linked<const CLoggingManager>        m_manager;
+        LOGGING_AGENTTHREADS::const_iterator m_threadIt;
+        Owned<IEspLogAgentVariantIterator>   m_variantIt;
+    };
 };
 
 #endif // !defined(__LOGGINGMANAGER_HPP__)

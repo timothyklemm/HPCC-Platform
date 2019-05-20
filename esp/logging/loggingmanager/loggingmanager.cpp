@@ -438,6 +438,62 @@ bool CLoggingManager::getTransactionID(StringAttrMapping* transFields, StringBuf
     return false;
 }
 
+IEspLogAgentVariantIterator* CLoggingManager::getAgentVariants() const
+{
+    return new CVariantIterator(*this);
+}
+
+CLoggingManager::CVariantIterator::CVariantIterator(const CLoggingManager& manager)
+    : m_manager(&manager)
+    , m_threadIt(m_manager->loggingAgentThreads.end())
+{
+}
+
+CLoggingManager::CVariantIterator::~CVariantIterator()
+{
+}
+
+bool CLoggingManager::CVariantIterator::first()
+{
+    m_threadIt = m_manager->loggingAgentThreads.begin();
+    m_variantIt.clear();
+    return next();
+}
+
+bool CLoggingManager::CVariantIterator::next()
+{
+    if (m_threadIt != m_manager->loggingAgentThreads.end())
+    {
+        if (m_variantIt.get() == nullptr)
+        {
+            m_variantIt.setown((*m_threadIt)->getLogAgent()->getVariants());
+            m_variantIt->first();
+        }
+        else
+            m_variantIt->next();
+        if (!m_variantIt->isValid())
+        {
+            m_variantIt.clear();
+            m_threadIt++;
+            return next();
+        }
+        return true;
+    }
+    return false;
+}
+
+bool CLoggingManager::CVariantIterator::isValid()
+{
+    return (m_threadIt != m_manager->loggingAgentThreads.end() &&
+            m_variantIt.get() != nullptr &&
+            m_variantIt->isValid());
+}
+
+const IEspLogAgentVariant & CLoggingManager::CVariantIterator::query()
+{
+    return m_variantIt->query();
+}
+
 extern "C"
 {
 LOGGINGMANAGER_API ILoggingManager* newLoggingManager()
