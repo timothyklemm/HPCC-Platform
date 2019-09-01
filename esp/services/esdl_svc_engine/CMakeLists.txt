@@ -31,10 +31,15 @@ set (   SRCS
         esdl_store.cpp
         esdl_monitor.cpp
         esdl_svc_custom.cpp
-        esdl_script_core.cpp
+        esdlscript/core/es_core_logging.cpp
+        esdlscript/core/es_core_statement.cpp
+        esdlscript/core/es_core_trace.cpp
+        esdlscript/core/es_core_utility.cpp
+        esdlscript/core/es_core_variable.cpp
     )
 
 include_directories (
+         esdlscript
          ${HPCC_SOURCE_DIR}/dali/base
          ${HPCC_SOURCE_DIR}/esp/esplib
          ${HPCC_SOURCE_DIR}/esp/platform

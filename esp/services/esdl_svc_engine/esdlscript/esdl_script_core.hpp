@@ -122,26 +122,6 @@ interface I ## token ## Owner \
 
 DECLARE_IOWNER(Outcomes);
 
-interface IOutcomeHandler : extends IInterface, extends IPersistent
-{
-    virtual const char* queryComponent() const = 0;
-    virtual const char* queryOperation() const = 0;
-    virtual void setComponent(const char* component) = 0;
-    virtual void setOperation(const char* operation) = 0;
-
-    virtual void record(OutcomeType type, int code, const char* format, ...) = 0;
-    virtual void recordSuccess(int code = 0, const char* format = nullptr, ...) = 0;
-    virtual void recordWarning(int code, const char* format, ...) = 0;
-    virtual void recordError(int code, const char* format, ...) = 0;
-
-    virtual OutcomeType status() const = 0;
-    inline operator OutcomeType () const { return status(); }
-    inline bool isSuccess() const { return status() == OutcomeType_Success; }
-    inline bool isWarning() const { return status() == OutcomeType_Warning; }
-    inline bool isError()   const { return status() == OutcomeType_Error; }
-};
-DECLARE_IOWNER(OutcomeHandler);
-
 struct ILoadContext : extends IInterface, implements IOutcomesOwner
 {
     virtual void addServiceConstraint(const char* service) = 0;
@@ -212,6 +192,10 @@ interface ILibrary : extends IInterface
 };
 DECLARE_IOWNER(Library);
 
+interface IParentContext : extends IInterface
+{
+};
+
 // An executable script construct.
 interface IStatement : extends IInterface
 {
@@ -229,7 +213,7 @@ interface IStatement : extends IInterface
     // On exit, the parser must be at the end tag of the current statement, where parser.next()
     // will advance to the next sibling (or an ancestor). If the result is OutcomeType_Error then
     // the parser is not required to advance to the end tag.
-    virtual void initialize(ILoadContext& context) = 0;
+    virtual bool initialize(ILoadContext& context) = 0;
 
     virtual const char* queryTag() const = 0;
     virtual const char* queryUID() const = 0;
@@ -238,7 +222,7 @@ interface IStatement : extends IInterface
     // Called during transaction processing, executes  subclass-specific behaviors.
     virtual const char* queryReadCursor() const = 0;
     virtual const char* queryWriteCursor() const = 0;
-    virtual void process(IProcessContext& context, const char* readXPath, const char* writeXPath) const = 0;
+    virtual void process(IProcessContext& context, IParentContext* parentInfo, const char* readXPath, const char* writeXPath) const = 0;
 
     // Returns true if and only if the expected outcome of the statement is the production of a
     // Boolean value. Most statements will return false, while logical control statements will
@@ -246,7 +230,10 @@ interface IStatement : extends IInterface
     virtual bool isEvaluable() const = 0;
     // Returns the Boolean value produced by an evaluable statement, such as 'if' or 'when'.
     // Returns false always when the statement is not evaluable.
-    virtual bool evaluate(IProcessContext* context) const = 0;
+    virtual bool evaluate(IProcessContext* context, IParentContext* parentInfo) const = 0;
+
+    virtual bool isComparable() const = 0;
+    virtual bool compare(const char* value, IProcessContext* context) const = 0;
 };
 
 enum TraceType
@@ -389,54 +376,6 @@ DECLARE_IOWNER(Variables);
 
 // -------------------------------------------------------------------------------------------------
 
-enum LogAgentFilterMode
-{
-    LAFM_Inclusive,
-    LAFM_Exclusive
-};
-enum LogAgentFilterType
-{
-    LAFT_Unfiltered,
-    LAFT_Group,
-    LAFT_Type,
-    LAFT_Name,
-};
-
-using ILogAgentVariant = IEspLogAgentVariant;
-
-interface ILogAgentFilter : extends IInterface
-{
-    virtual LogAgentFilterMode getMode() const = 0;
-    inline  bool isInclusive() const { return getMode() == LAFM_Inclusive; }
-    inline  bool isExclusive() const { return getMode() == LAFM_Exclusive; }
-
-    virtual LogAgentFilterType getType() const = 0;
-    inline  bool isUnfiltered() const { return getType() == LAFT_Unfiltered; }
-    inline  bool isByGroup() const { return getType() == LAFT_Group; }
-    inline  bool isByType() const { return getType() == LAFT_Type; }
-    inline  bool isByName() const { return getType() == LAFT_Name; }
-
-    virtual const char* getPattern() const = 0;
-
-    virtual ILogAgentFilter* refine(LogAgentFilterMode mode = LAFM_Inclusive, LogAgentFilterType type = LAFT_Unfiltered, const char* pattern = nullptr);
-    inline  ILogAgentFilter* includeGroup(const char* pattern) { return refine(LAFM_Inclusive, LAFT_Group, pattern); }
-    inline  ILogAgentFilter* excludeGroup(const char* pattern) { return refine(LAFM_Exclusive, LAFT_Group, pattern); }
-    inline  ILogAgentFilter* includeType(const char* pattern) { return refine(LAFM_Inclusive, LAFT_Type, pattern); }
-    inline  ILogAgentFilter* excludeType(const char* pattern) { return refine(LAFM_Exclusive, LAFT_Type, pattern); }
-    inline  ILogAgentFilter* includeName(const char* pattern) { return refine(LAFM_Inclusive, LAFT_Name, pattern); }
-    inline  ILogAgentFilter* excludeName(const char* pattern) { return refine(LAFM_Exclusive, LAFT_Name, pattern); }
-    virtual void reset() = 0;
-
-    virtual bool includes(const ILogAgentVariant* variant) const = 0;
-    inline  bool excludes(const ILogAgentVariant* variant) const { return !includes(variant); }
-};
-
-interface ILogAgentState : extends ILogAgentFilter, extends IPersistent
-{
-};
-
-DECLARE_IOWNER(LogAgentState);
-
 // -------------------------------------------------------------------------------------------------
 
 interface ICursor : extends IInterface, extends IVariableListener
@@ -502,6 +441,7 @@ interface IWriteCursor : extends ICursor
         ~StFrame() {}
     };
 
+    virtual IPTree* resolveRoot() const = 0;
     virtual IPTree* queryBranch(const char* xpath, bool ensure = true) const = 0;
 };
 DECLARE_IOWNER(WriteCursor);

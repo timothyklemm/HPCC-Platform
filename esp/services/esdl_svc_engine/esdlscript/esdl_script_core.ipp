@@ -23,61 +23,61 @@
 
 inline int compareCase(const char* lhs, const char* rhs)
 {
-	if (lhs == rhs)
-		return false;
-	if (nullptr == lhs)
-		return false;
-	if (nullptr == rhs)
-		return true;
-	return strcmp(lhs, rhs);
+    if (lhs == rhs)
+        return false;
+    if (nullptr == lhs)
+        return false;
+    if (nullptr == rhs)
+        return true;
+    return strcmp(lhs, rhs);
 }
 
 inline int compareNoCase(const char* lhs, const char* rhs)
 {
-	if (lhs == rhs)
-		return false;
-	if (nullptr == lhs)
-		return false;
-	if (nullptr == rhs)
-		return true;
-	return stricmp(lhs, rhs);
+    if (lhs == rhs)
+        return false;
+    if (nullptr == lhs)
+        return false;
+    if (nullptr == rhs)
+        return true;
+    return stricmp(lhs, rhs);
 }
 
 bool operator < (const EsdlScript::IStatement& lhs, const EsdlScript::IStatement& rhs)
 {
-	return compareNoCase(lhs.queryUID(), rhs.queryUID());
+    return compareNoCase(lhs.queryUID(), rhs.queryUID());
 }
 
 inline bool operator < (const String& lhs, const String& rhs)
 {
-	return compareNoCase(lhs.str(), rhs.str());
+    return compareNoCase(lhs.str(), rhs.str());
 }
 
 inline bool operator < (const EsdlScript::ILogAgentVariant& lhs, const EsdlScript::ILogAgentVariant& rhs)
 {
-	auto cmpResult = compareNoCase(lhs.getName(), rhs.getName());
+    auto cmpResult = compareNoCase(lhs.getName(), rhs.getName());
 
-	if (cmpResult != 0)
-		return cmpResult < 0;
-	cmpResult = compareNoCase(lhs.getType(), rhs.getType());
-	if (cmpResult != 0)
-		return cmpResult < 0;
-	return compareNoCase(lhs.getGroup(), rhs.getGroup()) < 0;
+    if (cmpResult != 0)
+        return cmpResult < 0;
+    cmpResult = compareNoCase(lhs.getType(), rhs.getType());
+    if (cmpResult != 0)
+        return cmpResult < 0;
+    return compareNoCase(lhs.getGroup(), rhs.getGroup()) < 0;
 }
 
 template<typename TOwned>
 bool operator < (const Owned<TOwned>& lhs, const Owned<TOwned>& rhs)
 {
-	auto lPtr = lhs.get();
-	auto rPtr = rhs.get();
+    auto lPtr = lhs.get();
+    auto rPtr = rhs.get();
 
-	if (lPtr == rPtr)
-		return false;
-	if (nullptr == lPtr)
-		return false;
-	if (nullptr == rPtr)
-		return true;
-	return *lPtr < *rPtr;
+    if (lPtr == rPtr)
+        return false;
+    if (nullptr == lPtr)
+        return false;
+    if (nullptr == rPtr)
+        return true;
+    return *lPtr < *rPtr;
 }
 
 namespace EsdlScript
@@ -85,30 +85,30 @@ namespace EsdlScript
 template <typename TEnum, TEnum undefined = TEnum(-1)>
 struct TEnumMapper
 {
-	using Enum = TEnum;
-	using MappingEntry = std::pair<Enum, const char*>;
-	using Mapping = std::vector<MappingEntry>;
+    using Enum = TEnum;
+    using MappingEntry = std::pair<Enum, const char*>;
+    using Mapping = std::vector<MappingEntry>;
 
-	Mapping m_mapping;
+    Mapping m_mapping;
 
-	TEnumMapper(const std::initializer_list<MappingEntry>& data)
-	    : m_mapping(data)
-	{
-	}
+    TEnumMapper(const std::initializer_list<MappingEntry>& data)
+        : m_mapping(data)
+    {
+    }
 
-	Enum mapping(const char* label) const
-	{
-		if (isEmptyString(label))
-			return undefined;
-		auto it = std::find_if(m_mapping.begin(), m_mapping.end(), [label](const MappingEntry& element) { return strcmp(label, element.second) == 0; });
-	    return it != m_mapping.end() ? it->first : undefined;
-	}
+    Enum mapping(const char* label) const
+    {
+        if (isEmptyString(label))
+            return undefined;
+        auto it = std::find_if(m_mapping.begin(), m_mapping.end(), [label](const MappingEntry& element) { return strcmp(label, element.second) == 0; });
+        return it != m_mapping.end() ? it->first : undefined;
+    }
 
-	const char* mapping(Enum e) const
-	{
-		auto it = std::find_if(m_mapping.begin(), m_mapping.end(), [e](const MappingEntry& element) { return element.first == e; });
+    const char* mapping(Enum e) const
+    {
+        auto it = std::find_if(m_mapping.begin(), m_mapping.end(), [e](const MappingEntry& element) { return element.first == e; });
         return it != m_mapping.end() ? it->second : nullptr;
-	}
+    }
 };
 
 #define DECLARE_COWNER(token) \
@@ -135,58 +135,58 @@ private: \
 class CPersistPTree
 {
 public:
-	IPTree* persist(IPTree* parent) const;
-	void restore(const IPTree* node);
+    IPTree* persist(IPTree* parent) const;
+    void restore(const IPTree* node);
 };
 
 class COutcomeTypeContainer : implements IOutcomeTypeContainer
 {
 public:
-	COutcomeTypeContainer(OutcomeType type) : m_type(type) {}
-	~COutcomeTypeContainer() {}
+    COutcomeTypeContainer(OutcomeType type) : m_type(type) {}
+    ~COutcomeTypeContainer() {}
 
-	OutcomeType getType() const override { return m_type; }
+    OutcomeType getType() const override { return m_type; }
 
 protected:
     const char* typeString() const
     {
-    	switch (m_type)
-    	{
-    	case OutcomeType_Success: return "success";
-    	case OutcomeType_Warning: return "warning";
-    	case OutcomeType_Error:   return "error";
-    	default:                  return "undefined";
-    	}
+        switch (m_type)
+        {
+        case OutcomeType_Success: return "success";
+        case OutcomeType_Warning: return "warning";
+        case OutcomeType_Error:   return "error";
+        default:                  return "undefined";
+        }
     }
 
 protected:
-	OutcomeType m_type;
+    OutcomeType m_type;
 };
 
 class COutcomeContext : implements IOutcomeContext
 {
 public:
-	COutcomeContext() {}
-	~COutcomeContext() {}
+    COutcomeContext() {}
+    ~COutcomeContext() {}
 
-	const char* getComponent() const override { return (m_component.get() != nullptr ? m_component->str() : nullptr); }
-	const char* getOperation() const override { return (m_operation.get() != nullptr ? m_operation->str() : nullptr); }
-	void        setComponent(const char* component) { update(m_component, component); }
-	void        setOperation(const char* operation) { update(m_operation, operation); }
+    const char* getComponent() const override { return (m_component.get() != nullptr ? m_component->str() : nullptr); }
+    const char* getOperation() const override { return (m_operation.get() != nullptr ? m_operation->str() : nullptr); }
+    void        setComponent(const char* component) { update(m_component, component); }
+    void        setOperation(const char* operation) { update(m_operation, operation); }
 
 protected:
-	void update(Owned<String>& out, const char* in)
-	{
-		if (isEmptyString(in))
-			out.clear();
-		else if (out.get() == nullptr)
-			out.setown(new String(in));
-		else if (out->compareTo(in) != 0)
-			out.setown(new String(in));
-	}
+    void update(Owned<String>& out, const char* in)
+    {
+        if (isEmptyString(in))
+            out.clear();
+        else if (out.get() == nullptr)
+            out.setown(new String(in));
+        else if (out->compareTo(in) != 0)
+            out.setown(new String(in));
+    }
 protected:
-	Owned<String> m_component;
-	Owned<String> m_operation;
+    Owned<String> m_component;
+    Owned<String> m_operation;
 };
 
 class COutcomes : implements IOutcomes, extends COutcomeTypeContainer, extends COutcomeContext, extends CPersistPTree, extends CInterface
@@ -225,7 +225,7 @@ protected:
     class COutcomeIterator : public CInterfaceOf<IOutcomeIterator>
     {
     public:
-    	COutcomeIterator(const COutcomes& outcomes);
+        COutcomeIterator(const COutcomes& outcomes);
         ~COutcomeIterator();
 
         // IVariableIterator
@@ -242,7 +242,7 @@ protected:
 public:
     COutcomes() : COutcomeTypeContainer(OutcomeType_Undefined) {}
 
-	IMPLEMENT_IINTERFACE;
+    IMPLEMENT_IINTERFACE;
 
     // IOutcomeTypeContainer
     OutcomeType getType() const override { return COutcomeTypeContainer::getType(); }
@@ -251,26 +251,26 @@ public:
     const char* getComponent() const override { return COutcomeContext::getComponent(); }
     const char* getOperation() const override { return COutcomeContext::getOperation(); }
     void setComponent(const char* component) override { COutcomeContext::setComponent(component); }
-	void setOperation(const char* operation) override { COutcomeContext::setOperation(operation); }
+    void setOperation(const char* operation) override { COutcomeContext::setOperation(operation); }
 
     // IOutcomes
-	void record(OutcomeType type, int code, const char* format, ...) override;
-	void recordSuccess(int code = 0, const char* format = nullptr, ...) override;
-	void recordWarning(int code, const char* format, ...) override;
-	void recordError(int code, const char* format, ...) override;
-	IOutcomeIterator* getOutcomes() const override;
+    void record(OutcomeType type, int code, const char* format, ...) override;
+    void recordSuccess(int code = 0, const char* format = nullptr, ...) override;
+    void recordWarning(int code, const char* format, ...) override;
+    void recordError(int code, const char* format, ...) override;
+    IOutcomeIterator* getOutcomes() const override;
 
-	// IPersistent
+    // IPersistent
     StringBuffer& persist(StringBuffer& xml) const override;
     IPTree* persist(IPTree* parent) const override { return CPersistPTree::persist(parent); }
     void restore(const IPTree* node) override { CPersistPTree::restore(node); }
 
 protected:
     void record(IOutcome* outcome);
-	virtual IOutcome* createOutcome(String* component, String* operation, OutcomeType type, int code, const char* message) const;
+    virtual IOutcome* createOutcome(String* component, String* operation, OutcomeType type, int code, const char* message) const;
 
 protected:
-	History m_history;
+    History m_history;
 };
 DECLARE_COWNER(Outcomes);
 
@@ -310,6 +310,11 @@ struct OutcomesContext
     IOutcomes& operator * ()
     {
         return m_outcomeHandler;
+    }
+
+    bool isError() const
+    {
+        return m_outcomeHandler.isError();
     }
 
 private:
@@ -477,28 +482,28 @@ protected:
 class CTraceState : implements ITraceState, extends CInterface, extends CPersistPTree
 {
 public:
-	CTraceState();
-	~CTraceState();
+    CTraceState();
+    ~CTraceState();
 
-	IMPLEMENT_IINTERFACE;
+    IMPLEMENT_IINTERFACE;
 
-	// IPersistent
-	StringBuffer& persist(StringBuffer& xml) const override;
-	IPTree* persist(IPTree* parent) const override { return CPersistPTree::persist(parent); }
+    // IPersistent
+    StringBuffer& persist(StringBuffer& xml) const override;
+    IPTree* persist(IPTree* parent) const override { return CPersistPTree::persist(parent); }
     void restore(const IPTree* node) override;
 
-	// ITraceState
-	void pushTraceStateFrame() override;
-	void setLogLevel(TraceType type, LogLevel level, TraceFrame inFrame = TraceFrame_Current) override;
-	LogLevel getLogLevel(TraceType type) const override;
-	void popTraceStateFrame() override;
-	StringBuffer& toString(StringBuffer& buffer) const override;
+    // ITraceState
+    void pushTraceStateFrame() override;
+    void setLogLevel(TraceType type, LogLevel level, TraceFrame inFrame = TraceFrame_Current) override;
+    LogLevel getLogLevel(TraceType type) const override;
+    void popTraceStateFrame() override;
+    StringBuffer& toString(StringBuffer& buffer) const override;
 
 public:
-	using TSFrame = std::map<TraceType, LogLevel>;
+    using TSFrame = std::map<TraceType, LogLevel>;
 protected:
-	using TSStack = std::vector<TSFrame>;
-	TSStack m_tsStack;
+    using TSStack = std::vector<TSFrame>;
+    TSStack m_tsStack;
 };
 
 struct StTraceStateFrame
@@ -579,7 +584,7 @@ public:
     using ParentAcceptor = std::function<bool(const CStatement*, const IStatement*)>;
     using ChildAcceptor = std::function<bool(const CStatement*, const char*)>;
     using ExtensionAcceptor = std::function<bool(const CStatement*, const char*)>;
-    using ChildPredicate = std::function<uint8_t(const Owned<IStatement>&, IProcessContext*)>;
+    using ChildPredicate = std::function<uint8_t(const Owned<IStatement>&, IProcessContext*, IParentContext*)>;
     using Children = std::list<Owned<IStatement> >;
 
     CStatement();
@@ -599,13 +604,15 @@ protected:
 
     // instance initialization
 public:
-    void initialize(ILoadContext& context) override;
+    bool initialize(ILoadContext& context) override;
 protected:
     virtual bool initializeSelf(ILoadContext& context);
     virtual void handleStartTag(ILoadContext& context);
     virtual void handleContent(ILoadContext& context);
     virtual void handleEndTag(ILoadContext& context);
     virtual void extendSelf(ILoadContext& context);
+    virtual void acceptChild(IStatement* child);
+    virtual void validateSelf(ILoadContext& context);
 public:
     bool acceptsChildren() const override;
     bool acceptsContent() const override;
@@ -628,17 +635,19 @@ protected:
 
     // transaction processing
 public:
-    const char* queryReadCursor() const = 0;
-    const char* queryWriteCursor() const = 0;
-    void process(IProcessContext& context, const char* readXPath, const char* writeXPath) const override;
+    const char* queryReadCursor() const;
+    const char* queryWriteCursor() const;
+    void process(IProcessContext& context, IParentContext*  parentInfo, const char* readXPath, const char* writeXPath) const override;
 protected:
-    bool processSelf(IProcessContext& context, const char* readXPath, const char* writeXPath) const;
-    void processChildren(IProcessContext& context, const char* readXPath, const char* writeXPath) const;
+    bool processSelf(IProcessContext& context, IParentContext* parentInfo, const char* readXPath, const char* writeXPath, Owned<IParentContext>& selfInfo) const;
+    void processChildren(IProcessContext& context, IParentContext* parentInfo, const char* readXPath, const char* writeXPath) const;
 
     // conditional evaluation
 public:
     bool isEvaluable() const override;
-    bool evaluate(IProcessContext* context) const override;
+    bool evaluate(IProcessContext* context, IParentContext* parentInfo) const override;
+    bool isComparable() const override;
+    bool compare(const char* value, IProcessContext* context) const override;
 
     // instance information
 public:
@@ -719,11 +728,11 @@ class CVariables : implements IVariables, extends CPersistPTree, extends CInterf
 {
 protected:
     interface IMutableVariable : extends IVariable
-	{
-    	virtual void updateState(VariableState state) = 0;
-    	virtual void updateFrame(VariableFrame frame) = 0;
-    	virtual void updateValue(const char* value) = 0;
-	};
+    {
+        virtual void updateState(VariableState state) = 0;
+        virtual void updateFrame(VariableFrame frame) = 0;
+        virtual void updateValue(const char* value) = 0;
+    };
     using VariableSet = std::set<Owned<IMutableVariable> >;
     using VariableSetStack = std::vector<VariableSet>;
     class CVariable : implements IMutableVariable, extends CPersistPTree, extends CInterface
@@ -813,18 +822,18 @@ protected:
 class CLogAgentFilter : implements ILogAgentFilter, extends CInterface
 {
 protected:
-	using Filters = std::list<Owned<ILogAgentFilter> >;
-	using Variants = std::set<const ILogAgentVariant*>;
+    using Filters = std::list<Owned<ILogAgentFilter> >;
+    using Variants = std::set<const ILogAgentVariant*>;
 public:
-	CLogAgentFilter(const Variants& variants, LogAgentFilterMode mode, LogAgentFilterType type, const char* pattern);
-	~CLogAgentFilter();
+    CLogAgentFilter(const Variants& variants, LogAgentFilterMode mode, LogAgentFilterType type, const char* pattern);
+    ~CLogAgentFilter();
 
-	IMPLEMENT_IINTERFACE;
+    IMPLEMENT_IINTERFACE;
 
-	// ILogAgentFilter
-	LogAgentFilterMode getMode() const override { return m_mode; }
-	LogAgentFilterType getType() const override { return m_type; }
-	const char*        getPattern() const override { return m_pattern.get(); }
+    // ILogAgentFilter
+    LogAgentFilterMode getMode() const override { return m_mode; }
+    LogAgentFilterType getType() const override { return m_type; }
+    const char*        getPattern() const override { return m_pattern.get(); }
     ILogAgentFilter*   refine(LogAgentFilterMode mode = LAFM_Inclusive, LogAgentFilterType type = LAFT_Unfiltered, const char* pattern = nullptr) override;
     void               reset() override;
     bool               includes(const ILogAgentVariant* agent) const override;
@@ -834,35 +843,35 @@ protected:
     virtual bool doMatch(bool matched, const ILogAgentVariant* variant, LogAgentFilterMode mode);
 
 protected:
-	LogAgentFilterMode m_mode;
-	LogAgentFilterType m_type;
-	StringAttr         m_pattern;
-	Filters            m_refinements;
-	Variants           m_variants;
+    LogAgentFilterMode m_mode;
+    LogAgentFilterType m_type;
+    StringAttr         m_pattern;
+    Filters            m_refinements;
+    Variants           m_variants;
 };
 
 class CLogAgentState : implements ILogAgentState, extends CLogAgentFilter, extends CPersistPTree
 {
 public:
-	CLogAgentState(const ILoggingManager* manager);
-	~CLogAgentState();
+    CLogAgentState(const ILoggingManager* manager);
+    ~CLogAgentState();
 
-	// ILogAgentFilter
-	LogAgentFilterMode getMode() const override { return CLogAgentFilter::getMode(); }
-	LogAgentFilterType getType() const override { return CLogAgentFilter::getType(); }
-	const char*        getPattern() const override { return CLogAgentFilter::getPattern(); }
-	ILogAgentFilter*   refine(LogAgentFilterMode mode = LAFM_Inclusive, LogAgentFilterType type = LAFT_Unfiltered, const char* pattern = nullptr) override { return CLogAgentFilter::refine(mode, type, pattern); }
-	void               reset() override { CLogAgentFilter::reset(); }
-	bool               includes(const ILogAgentVariant* variant) const override { return CLogAgentFilter::includes(variant); }
+    // ILogAgentFilter
+    LogAgentFilterMode getMode() const override { return CLogAgentFilter::getMode(); }
+    LogAgentFilterType getType() const override { return CLogAgentFilter::getType(); }
+    const char*        getPattern() const override { return CLogAgentFilter::getPattern(); }
+    ILogAgentFilter*   refine(LogAgentFilterMode mode = LAFM_Inclusive, LogAgentFilterType type = LAFT_Unfiltered, const char* pattern = nullptr) override { return CLogAgentFilter::refine(mode, type, pattern); }
+    void               reset() override { CLogAgentFilter::reset(); }
+    bool               includes(const ILogAgentVariant* variant) const override { return CLogAgentFilter::includes(variant); }
 
     // IPersistent
-	StringBuffer& persist(StringBuffer& xml) const override;
-	IPTree* persist(IPTree* parent) const override { return CPersistPTree::persist(parent); }
-	void restore(const IPTree* node) override;
+    StringBuffer& persist(StringBuffer& xml) const override;
+    IPTree* persist(IPTree* parent) const override { return CPersistPTree::persist(parent); }
+    void restore(const IPTree* node) override;
 
 protected:
-	using Strings = std::set<Owned<String> >;
-	static Variants transform(const ILoggingManager* manager);
+    using Strings = std::set<Owned<String> >;
+    static Variants transform(const ILoggingManager* manager);
 };
 
 // -------------------------------------------------------------------------------------------------

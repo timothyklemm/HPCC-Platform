@@ -33,10 +33,7 @@ const char* phaseResponse = "xsdl:ResponsePhase";
 const char* phaseLogManager = "xsdl:LogManagerPhase";
 const char* phaseLogAgent = "xsdl:LogAgentPhase";
 
-const char* choose = "xsdl:choose";
 const char* customRequestTransform = "xsdl:CustomRequestTransform";
-const char* otherwise = "xsdl:otherwise";
-const char* when = "xsdl:when";
 } // namespace Tags
 
 static const CTraceState::TSFrame defaultTraceStates(
@@ -273,7 +270,7 @@ CStatement::~CStatement()
 {
 }
 
-void CStatement::initialize(ILoadContext& context)
+bool CStatement::initialize(ILoadContext& context)
 {
     OutcomesContext ohc(context.queryOutcomes());
 
@@ -281,7 +278,7 @@ void CStatement::initialize(ILoadContext& context)
     {
         (*ohc).recordError(-1, "'%s' statement invalid internal state (expected %d, found %d)", context.currentTag(), InitializationState_New, m_initializationState);
     }
-    else if (!(*ohc).isError())
+    else if (!ohc.isError())
     {
         m_initializationState = InitializationState_InProgress;
         m_tag.append(context.currentTag());
@@ -289,7 +286,7 @@ void CStatement::initialize(ILoadContext& context)
 
         if (initializeSelf(context))
         {
-            while (context.next())
+            while (!ohc.isError() && context.next())
             {
                 switch (context.currentEntityType())
                 {
@@ -309,8 +306,13 @@ void CStatement::initialize(ILoadContext& context)
                     break;
                 }
             }
+
+            if (!ohc.isError())
+                validateSelf(context);
         }
     }
+
+    return !(*ohc).isError();
 }
 
 bool CStatement::initializeSelf(ILoadContext& context)
@@ -318,6 +320,10 @@ bool CStatement::initializeSelf(ILoadContext& context)
     return true;
 }
 
+void CStatement::acceptChild(IStatement* child)
+{
+    m_children.push_back(child);
+}
 void CStatement::handleStartTag(ILoadContext& context)
 {
     OutcomesContext ohc(context.queryOutcomes());
@@ -338,7 +344,7 @@ void CStatement::handleStartTag(ILoadContext& context)
                     subChild->m_parent = this;
                 else
                     (*ohc).recordWarning(-1, "unable to set parent of '%s' statement - not derived from CStatement", queryTag(), child->queryTag());
-                m_children.push_back(child);
+                acceptChild(child);
                 (*ohc).recordSuccess(-1, "'%s' statement added child '%s'", queryTag(), child->queryTag());
             }
             else
@@ -390,6 +396,10 @@ void CStatement::extendSelf(ILoadContext& context)
             (*ohc).recordWarning(-1, "'%s' statement '%s' ignored content '%s'", queryTag(), (isEmptyString(queryUID()) ? "N/A" : queryUID()), context.currentContent());
         break;
     }
+}
+
+void CStatement::validateSelf(ILoadContext& context)
+{
 }
 
 bool CStatement::acceptsChildren() const
@@ -497,7 +507,7 @@ const char* CStatement::queryWriteCursor() const
     return nullptr;
 }
 
-void CStatement::process(IProcessContext& context, const char* readXPath, const char* writeXPath) const
+void CStatement::process(IProcessContext& context, IParentContext* parentInfo, const char* readXPath, const char* writeXPath) const
 {
     // native code programming error --> throw exception
     if (!isInitialized())
@@ -505,30 +515,31 @@ void CStatement::process(IProcessContext& context, const char* readXPath, const 
 
     IReadCursor::StFrame rFrame(*context.queryReadCursor(), *this);
     IWriteCursor::StFrame wFrame(*context.queryWriteCursor(), *this);
+    Owned<IParentContext> selfInfo;
 
     if (rFrame.isValid() && wFrame.isValid() &&
-        processSelf(context, readXPath, writeXPath))
+        processSelf(context, parentInfo, readXPath, writeXPath, selfInfo))
     {
-        processChildren(context, readXPath, writeXPath);
+        processChildren(context, selfInfo, readXPath, writeXPath);
     }
 }
 
-bool CStatement::processSelf(IProcessContext& context, const char* readXPath, const char* writeXPath) const
+bool CStatement::processSelf(IProcessContext& context, IParentContext* parentInfo, const char* readXPath, const char* writeXPath, Owned<IParentContext>& selfInfo) const
 {
     return true;
 }
 
-void CStatement::processChildren(IProcessContext& context, const char* readXPath, const char* writeXPath) const
+void CStatement::processChildren(IProcessContext& context, IParentContext* selfInfo, const char* readXPath, const char* writeXPath) const
 {
     if (acceptsChildren() && !m_children.empty())
     {
         for (auto& child : m_children)
         {
-            auto predicateResponse = m_childPredicate(child, &context);
+            auto predicateResponse = m_childPredicate(child, &context, selfInfo);
 
             if (predicateResponse & ChildPredicate_Match)
             {
-                child->process(context, readXPath, writeXPath);
+                child->process(context, selfInfo, readXPath, writeXPath);
             }
 
             if (predicateResponse & ChildPredicate_Stop)
@@ -544,7 +555,17 @@ bool CStatement::isEvaluable() const
     return false;
 }
 
-bool CStatement::evaluate(IProcessContext* context) const
+bool CStatement::evaluate(IProcessContext* context, IParentContext* parentInfo) const
+{
+    return false;
+}
+
+bool CStatement::isComparable() const
+{
+    return false;
+}
+
+bool CStatement::compare(const char* value, IProcessContext* context) const
 {
     return false;
 }
@@ -581,7 +602,18 @@ bool Script::add(const IPTree* tree, const char* xpath, const char* service, con
         if (tree->hasChildren())
             toXML(tree, fragment.content);
         else
-            fragment.content.append(tree->queryProp("."));
+        {
+            Owned<IAttributeIterator> attrs = tree->getAttributes();
+            auto content = tree->queryProp(".");
+
+            fragment.content << '<' << tree->queryName();
+               ForEach(*attrs)
+                fragment.content << ' ' << attrs->queryName() << "=\"" << attrs->queryValue() << '"';
+               if (isEmptyString(content))
+                   fragment.content << "/>";
+               else
+                   fragment.content << '>' << content << "</" << tree->queryName() << '>';
+        }
         fragment.service = service;
         fragment.method = method;
         push_back(fragment);
@@ -656,7 +688,7 @@ void CEnvironment::load(ILoadContext& context, const IPTree* binding)
 
         Script script;
 
-        script.add(node, "EsdlScript", esdlService);
+        script.add(node, Tags::root, esdlService);
         node = node->queryBranch("Methods");
         if (nullptr == node)
             throw MakeStringException(-1, "EsdlScript environment initialization error [invalid binding definition]");
@@ -734,7 +766,7 @@ void CEnvironment::load(ILoadContext& context, const ScriptFragment& fragment)
 
     while (context.next())
     {
-        if (context.atStartTag() && stricmp(context.currentTag(), Tags::root) == 0)
+        if (context.atStartTag() && strieq(context.currentTag(), Tags::root))
             loadScript(context);
     }
 
@@ -1508,176 +1540,6 @@ CVariables::IMutableVariable* CVariables::createVariable(VariableState state, co
 
 // -------------------------------------------------------------------------------------------------
 
-CLogAgentFilter::CLogAgentFilter(const Variants& variants, LogAgentFilterMode mode, LogAgentFilterType type, const char* pattern)
-    : m_mode(mode)
-    , m_type(type)
-    , m_pattern(pattern)
-{
-    for (auto& v : variants)
-    {
-        switch (type)
-        {
-        case LAFT_Unfiltered:
-            doMatch(true, v, mode);
-            break;
-        case LAFT_Group:
-            doMatch(isMatch("", pattern), v, mode);
-            break;
-        case LAFT_Type:
-            doMatch(isMatch("", pattern), v, mode);
-            break;
-        case LAFT_Name:
-            doMatch(isMatch("", pattern), v, mode);
-            break;
-        default:
-            break;
-        }
-    }
-}
-
-CLogAgentFilter::~CLogAgentFilter()
-{
-}
-
-ILogAgentFilter* CLogAgentFilter::refine(LogAgentFilterMode mode, LogAgentFilterType type, const char* pattern)
-{
-    if (!m_refinements.empty() && m_refinements.front()->getMode() != mode)
-    {
-        // inclusive and exclusive siblings are contradictory
-        return nullptr;
-    }
-
-    Owned<ILogAgentFilter> filter(new CLogAgentFilter(m_variants, mode, type, pattern));
-
-    return filter.getClear();
-}
-
-void CLogAgentFilter::reset()
-{
-    m_refinements.clear();
-}
-
-bool CLogAgentFilter::includes(const ILogAgentVariant* agent) const
-{
-    return false;
-}
-
-bool CLogAgentFilter::isMatch(const char* value, const char* pattern) const
-{
-    if (isEmptyString(pattern))
-        return isEmptyString(value);
-
-    if (strcmp(pattern, "*") == 0)
-        return true;
-
-    if (isEmptyString(value))
-        return false;
-
-    return stricmp(value, pattern) == 0;
-}
-
-bool CLogAgentFilter::doMatch(bool matched, const ILogAgentVariant* variant, LogAgentFilterMode mode)
-{
-    if (matched)
-    {
-        if (LAFM_Inclusive == mode)
-            m_variants.insert(variant);
-        else
-            matched = false;
-    }
-    return matched;
-}
-
-CLogAgentState::CLogAgentState(const ILoggingManager* manager)
-    : CLogAgentFilter(transform(manager), LAFM_Inclusive, LAFT_Unfiltered, nullptr)
-{
-
-}
-
-CLogAgentState::~CLogAgentState()
-{
-}
-
-StringBuffer& CLogAgentState::persist(StringBuffer& xml) const
-{
-    xml.appendf("<LogAgentState count=\"%zu\">", m_variants.size());
-    for (auto& a : m_variants)
-    {
-        xml.appendf("<Variant name=\"%s\" type=\"%s\" group=\"%s\" enabled=\"%d\"/>", "", "", "", includes(a));
-    }
-    xml.append("</LogAgentState>");
-
-    return xml;
-}
-
-void CLogAgentState::restore(const IPTree* node)
-{
-    class CLogAgentVariant : public CInterfaceOf<ILogAgentVariant>
-    {
-    public:
-        const char* name;
-        const char* type;
-        const char* group;
-
-        const char* getName() const { return name; }
-        const char* getType() const { return type; }
-        const char* getGroup() const { return group; }
-    };
-
-    node = findNamed(node, "LogAgentState");
-    if (node != nullptr)
-    {
-        auto count = node->getPropInt("@count");
-
-        if (count < 0)
-            throw MakeStringException(-1, "EsdlScript LogAgent restore error [invalid count]");
-
-        Owned<IPTreeIterator> variants(node->getElements("Variant"));
-        CLogAgentVariant* needle = new CLogAgentVariant;
-        Owned<ILogAgentVariant> ownedNeedle(needle);
-        Variants tmp;
-
-        ForEach(*variants)
-        {
-            auto& v = variants->query();
-            auto  enabled = v.getPropBool("@enabled");
-
-            needle->name = v.queryProp("@name");
-            if (isEmptyString(needle->name))
-                continue;
-            needle->type = v.queryProp("@type");
-            needle->group = v.queryProp("@group");
-
-            if (enabled)
-            {
-                auto it = m_variants.find(ownedNeedle);
-
-                if (it != m_variants.end())
-                    tmp.insert(*it);
-                else
-                    ; // how should missing agent be handled?
-            }
-            else
-                ; // log disabled agent?
-        }
-
-        reset();
-        m_variants = tmp;
-    }
-}
-
-CLogAgentFilter::Variants CLogAgentState::transform(const ILoggingManager* manager)
-{
-    Owned<IEspLogAgentVariantIterator> variants(manager->getAgentVariants());
-    Variants result;
-
-    ForEach(*variants)
-    {
-        result.insert(LINK(&variants->query()));
-    }
-    return result;
-}
-
 // -------------------------------------------------------------------------------------------------
 
 CPhaseStatement::CPhaseStatement(Phase phase)
@@ -1698,7 +1560,7 @@ Phase CPhaseStatement::queryPhase() const
 
 void CPhaseStatement::checkPhase(ILoadContext& context) const
 {
-    // Assume statement loadion has validated the expected phase and do nothing.
+    // Assume statement loading has validated the expected phase and do nothing.
 
     for (auto& c : m_children)
     {
@@ -1715,16 +1577,16 @@ bool parentIsRoot(const CStatement* self, const IStatement* parent)
 
 bool parentIsChoose(const CStatement* self, const IStatement* parent)
 {
-    return parent != nullptr && stricmp(parent->queryTag(), Tags::choose) == 0;
+    return parent != nullptr && streq(parent->queryTag(), Tags::choose);
 }
 
 bool childOfChoose(const CStatement* parent, const char* tag)
 {
     if (isEmptyString(tag))
         return false;
-    if (stricmp(tag, Tags::when) == 0)
+    if (strieq(tag, Tags::when))
         return true;
-    if (stricmp(tag, Tags::otherwise) == 0)
+    if (strieq(tag, Tags::otherwise))
         return parent->queryChildTag(tag) == nullptr;
     return false;
 }
