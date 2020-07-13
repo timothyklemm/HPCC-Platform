@@ -112,6 +112,7 @@ interface IUpdateLogThread : extends IInterface
     virtual bool queueLog(IEspUpdateLogRequestWrap* logRequest) = 0;
     virtual void sendLog() = 0;
     virtual ILogRequestReader* getLogRequestReader() = 0;
+    virtual const char *queryControlName() = 0;
 };
 
 class CLogThread : public Thread , implements IUpdateLogThread
@@ -121,6 +122,8 @@ class CLogThread : public Thread , implements IUpdateLogThread
     int maxLogQueueLength;
     int signalGrowingQueueAt;
     unsigned maxLogRetries;   // Max. # of attempts to send log message
+
+    StringBuffer controlName;
 
     Owned<IEspLogAgent> logAgent;
     QueueOf<IInterface, false> logQueue;
@@ -140,7 +143,7 @@ class CLogThread : public Thread , implements IUpdateLogThread
     IEspUpdateLogRequestWrap* readJobQueue();
     IEspUpdateLogRequestWrap* checkAndReadLogRequestFromSharedTankFile(IEspUpdateLogRequestWrap* logRequest);
     void checkAndCreateFile(const char* fileName);
-
+    const char *queryControlName() override {return controlName;}
 public:
     IMPLEMENT_IINTERFACE;
 

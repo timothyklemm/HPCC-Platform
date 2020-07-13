@@ -105,7 +105,7 @@ bool CLoggingManager::updateLog(IEspLogEntry* entry, StringBuffer& status)
     if (entry->getLogInfoTree())
         return updateLog(entry->getEspContext(), entry->getOption(), entry->getLogInfoTree(), entry->getExtraLog(), status);
 
-    return updateLog(entry->getEspContext(), entry->getOption(), entry->getUserContextTree(), entry->getUserRequestTree(),
+    return updateLog(entry->getEspContext(), entry->getOption(), entry->getUserContextTree(), entry->getUserRequestTree(), entry->getScriptValuesTree(),
         entry->getBackEndReq(), entry->getBackEndResp(), entry->getUserResp(), entry->getLogDatasets(), status);
 }
 
@@ -155,7 +155,7 @@ bool CLoggingManager::updateLog(IEspContext* espContext, const char* option, IPr
     return bRet;
 }
 
-bool CLoggingManager::updateLog(IEspContext* espContext, const char* option, IPropertyTree* userContext, IPropertyTree* userRequest,
+bool CLoggingManager::updateLog(IEspContext* espContext, const char* option, IPropertyTree* userContext, IPropertyTree* userRequest, IPropertyTree *scriptValues,
     const char* backEndReq, const char* backEndResp, const char* userResp, const char* logDatasets, StringBuffer& status)
 {
     if (!initialized)
@@ -188,6 +188,8 @@ bool CLoggingManager::updateLog(IEspContext* espContext, const char* option, IPr
         }
         Owned<IEspUpdateLogRequestWrap> req =  new CUpdateLogRequestWrap(nullptr, option, espContextTree.getClear(), LINK(userContext), LINK(userRequest),
             backEndReq, backEndResp, userResp, logDatasets);
+        if (scriptValues)
+            req->setScriptValuesTree(scriptValues);
         Owned<IEspUpdateLogResponse> resp =  createUpdateLogResponse();
         bRet = updateLog(espContext, *req, *resp, status);
     }
@@ -215,6 +217,15 @@ bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWra
             status.set("Failed to update log");
     }
     return bRet;
+}
+
+bool checkSkipThreadQueue(IPropertyTree *scriptValues, const char *controlName)
+{
+    if (!scriptValues || !controlName || !*controlName)
+        return false;
+    VStringBuffer controlAttr("@%s", controlName);
+    const char *controlValue = scriptValues->queryProp(controlAttr);
+    return (controlValue && strieq(controlValue, "skip"));
 }
 
 bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWrap& req, IEspUpdateLogResponse& resp)
@@ -256,11 +267,17 @@ bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWra
         }
         else
         {
+            Owned<IPropertyTree> scriptValues = req.getScriptValuesTree();
             for (unsigned int x = 0; x < loggingAgentThreads.size(); x++)
             {
                 IUpdateLogThread* loggingThread = loggingAgentThreads[x];
                 if (loggingThread->hasService(LGSTUpdateLOG))
                 {
+                    //leave the fact that a script can control the thread queue as an option undocumented, naming scheme could change,
+                    //  controlling the queue is a very low level mechanism and should be frowned upon
+                    //  once scripts can communicate with the agent that should be the mechanism to skip a particular type of logging
+                    if (checkSkipThreadQueue(scriptValues, loggingThread->queryControlName()))
+                        continue;
                     loggingThread->queueLog(&req);
                 }
             }

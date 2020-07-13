@@ -70,6 +70,11 @@ CLogThread::CLogThread(IPropertyTree* _cfg , const char* _service, const char* _
 
     logAgent.setown(_logAgent);
 
+    //leave the fact that a script can leverage this name as an option undocumented, naming scheme could change,
+    //  controlling the queue is a very low level mechanism and should be frowned upon
+    //  once scripts can communicate with the agent that should be the mechanism to skip a particular type of logging
+    controlName.appendf("thread-queue-%s-%s", _service, _agentName);
+
     maxLogQueueLength = _cfg->getPropInt(PropMaxLogQueueLength, MaxLogQueueLength);
     signalGrowingQueueAt = _cfg->getPropInt(PropQueueSizeSignal, QueueSizeSignal);
     maxLogRetries = _cfg->getPropInt(PropMaxTriesRS, DefaultMaxTriesRS);
