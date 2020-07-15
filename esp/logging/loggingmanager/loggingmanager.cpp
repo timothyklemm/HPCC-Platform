@@ -238,6 +238,7 @@ bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWra
         if (espContext)
             espContext->addTraceSummaryTimeStamp(LogMin, "LMgr:startQLog");
 
+        Owned<IPropertyTree> scriptValues = req.getScriptValuesTree();
         if (oneTankFile)
         {
             Owned<CLogRequestInFile> reqInFile = new CLogRequestInFile();
@@ -261,13 +262,17 @@ bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWra
                 IUpdateLogThread* loggingThread = loggingAgentThreads[x];
                 if (loggingThread->hasService(LGSTUpdateLOG))
                 {
+                    //leave the fact that a script can control the thread queue as an option undocumented, naming scheme could change,
+                    //  controlling the queue is a very low level mechanism and should be frowned upon
+                    //  once scripts can communicate with the agent that should be the mechanism to skip a particular type of logging
+                    if (checkSkipThreadQueue(scriptValues, loggingThread->queryControlName()))
+                        continue;
                     loggingThread->queueLog(logRequest);
                 }
             }
         }
         else
         {
-            Owned<IPropertyTree> scriptValues = req.getScriptValuesTree();
             for (unsigned int x = 0; x < loggingAgentThreads.size(); x++)
             {
                 IUpdateLogThread* loggingThread = loggingAgentThreads[x];
