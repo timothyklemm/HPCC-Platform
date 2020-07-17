@@ -921,9 +921,6 @@ void EsdlServiceImpl::handleServiceRequest(IEspContext &context,
 
 bool EsdlServiceImpl::handleResultLogging(IEspContext &espcontext, IEsdlScriptContext *scriptContext, IPropertyTree * reqcontext, IPropertyTree * request,const char *rawreq, const char * rawresp, const char * finalresp, const char * logdata)
 {
-    Owned<IPropertyTree> scriptValues = scriptContext->createPTreeFromSection(ESDLScriptCtxSection_Logging);
-    StringBuffer sv;
-    puts(toXML(scriptValues, sv));
     bool success = true;
     if (m_oLoggingManager)
     {
@@ -1448,14 +1445,8 @@ void EsdlServiceImpl::prepareFinalRequest(IEspContext &context,
 
     // Process Custom Request Transforms
 
-    // If the CRTs are nullptr, we could have been called from a context without 
-    // access to them, so pull them from ourself. When they are passed in the
-    // error checking has already been completed.
-
     if (m_serviceLevelCrtFail)
         throw MakeStringException(-1, "%s::%s disabled due to service-level Custom Transform errors. Review transform template in configuration.", srvdef.queryName(), mthName);
-
-    m_serviceLevelRequestTransform;
 
     StringAttr *crtErrorMessage = m_methodCRTransformErrors.getValue(mthName);
     if (crtErrorMessage && !crtErrorMessage->isEmpty())
@@ -1467,7 +1458,8 @@ void EsdlServiceImpl::prepareFinalRequest(IEspContext &context,
 
         context.addTraceSummaryTimeStamp(LogNormal, "srt-custreqtrans");
         scriptContext->setContent(ESDLScriptCtxSection_ESDLRequest, reqProcessed.str());
-        processServiceAndMethodTransforms(scriptContext, {m_serviceLevelRequestTransform, methodCrt}, ESDLScriptCtxSection_ESDLRequest, ESDLScriptCtxSection_FinalRequest);
+        if (m_serviceLevelRequestTransform || methodCrt) //slightly redundant, but less fragile to future changes to check again here
+            processServiceAndMethodTransforms(scriptContext, {m_serviceLevelRequestTransform, methodCrt}, ESDLScriptCtxSection_ESDLRequest, ESDLScriptCtxSection_FinalRequest);
         scriptContext->toXML(reqProcessed.clear(), ESDLScriptCtxSection_FinalRequest);
 
         context.addTraceSummaryTimeStamp(LogNormal, "end-custreqtrans");

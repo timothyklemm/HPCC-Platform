@@ -219,13 +219,60 @@ bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWra
     return bRet;
 }
 
-bool checkSkipThreadQueue(IPropertyTree *scriptValues, const char *controlName)
+static bool checkEnabledLogEntry(IPropertyTree *scriptValues, const char *profile, const char *group, unsigned &groupEntryCount, const char *logtype, unsigned &typeEntryCount)
 {
-    if (!scriptValues || !controlName || !*controlName)
+    if ((!group || *group) && (!logtype || !*logtype)) //get this special case out of the way
         return false;
-    VStringBuffer controlAttr("@%s", controlName);
-    const char *controlValue = scriptValues->queryProp(controlAttr);
-    return (controlValue && strieq(controlValue, "skip"));
+    //we only care about groups if a profile is specified, if so does it match?
+    if (profile && *profile && group && *group)
+    {
+        groupEntryCount++;
+        if (!strieq(profile, group))
+            return false; //don't need to fall through and check types this group doesn't match
+    }
+    //if an entry has an enabled group but no type that entry is enabled
+    if (!logtype || !*logtype)
+        return true;
+    typeEntryCount++;
+    //if our type isn't disabled then this entry is enabled
+    VStringBuffer xpath("@disable-log-type-%s", logtype);
+    return (!scriptValues->getPropBool(xpath, false));
+}
+
+bool checkSkipThreadQueue(IPropertyTree *scriptValues, IUpdateLogThread &logthread)
+{
+    if (!scriptValues)
+        return false;
+    const char *controlName = logthread.queryControlName();
+    if (controlName && *controlName)
+    {
+        VStringBuffer controlAttr("@%s", controlName);
+        const char *controlValue = scriptValues->queryProp(controlAttr);
+        if (controlValue && strieq(controlValue, "skip"))
+            return true;
+    }
+    Linked<IEspLogAgent> agent = logthread.getLogAgent(); //badly named function get does not link
+    if (!agent)
+        return false;
+    const char *profile = scriptValues->queryProp("@profile");
+
+    unsigned groupEntryCount = 0;
+    unsigned groupEntriesDisabled = 0;
+    unsigned typeEntryCount = 0;
+    unsigned typeEntriesDisabled = 0;
+
+    Owned<IEspLogAgentVariantIterator> variants = agent->getVariants();
+    ForEach(*variants)
+    {
+        //a single enabled entry means we can't skip.  Unfortunately group="", type="" may be an artifact? treat it as non-existent
+        if (checkEnabledLogEntry(scriptValues, profile, variants->query().getGroup(), groupEntryCount, variants->query().getType(), typeEntryCount))
+            return false;
+    }
+    //if nothing was defined/checked then we're defacto enabled
+    if (groupEntryCount==0 && typeEntryCount==0)
+        return false;
+    //things were checked but each was disabled
+    return true;
 }
 
 bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWrap& req, IEspUpdateLogResponse& resp)
@@ -265,7 +312,7 @@ bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWra
                     //leave the fact that a script can control the thread queue as an option undocumented, naming scheme could change,
                     //  controlling the queue is a very low level mechanism and should be frowned upon
                     //  once scripts can communicate with the agent that should be the mechanism to skip a particular type of logging
-                    if (checkSkipThreadQueue(scriptValues, loggingThread->queryControlName()))
+                    if (checkSkipThreadQueue(scriptValues, *loggingThread))
                         continue;
                     loggingThread->queueLog(logRequest);
                 }
@@ -281,7 +328,7 @@ bool CLoggingManager::updateLog(IEspContext* espContext, IEspUpdateLogRequestWra
                     //leave the fact that a script can control the thread queue as an option undocumented, naming scheme could change,
                     //  controlling the queue is a very low level mechanism and should be frowned upon
                     //  once scripts can communicate with the agent that should be the mechanism to skip a particular type of logging
-                    if (checkSkipThreadQueue(scriptValues, loggingThread->queryControlName()))
+                    if (checkSkipThreadQueue(scriptValues, *loggingThread))
                         continue;
                     loggingThread->queueLog(&req);
                 }
