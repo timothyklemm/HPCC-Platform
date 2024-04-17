@@ -28,6 +28,12 @@
 static auto pRequestCount = hpccMetrics::registerCounterMetric("esp.requests.received", "Number of requests received", SMeasureCount);
 #endif
 
+namespace
+{
+    // Iteration of summary entries occurs without knowledge of the ssummary or its connector.
+    static thread_local CTxOpenTelemetryConnector* otelConnector = nullptr;
+}
+
 inline bool validate(const char* k)
 {
     // Empty or null keys are invalid
@@ -125,6 +131,11 @@ StringBuffer& CTxSummary::TxEntryTimer::serialize(StringBuffer& buf, const LogLe
     {
         buf.append(fullname);
         buf.appendf("=%" I64F "u;", value->getTotalMillis());
+    }
+    else if (requestedStyle & TXSUMMARY_FWD_OTEL)
+    {
+        if (otelConnector)
+            otelConnector->forwardAttribute(name, nullptr, value->getTotalMillis(), TxUnits::millis, queryLogLevel(), queryGroup());
     }
 
     return buf;
@@ -517,6 +528,11 @@ void CTxSummary::setProfile(ITxSummaryProfile* profile)
     m_profile.set(profile);
 }
 
+void CTxSummary::setConnector(CTxOpenTelemetryConnector* _connector)
+{
+    connector.setown(_connector);
+}
+
 void CTxSummary::serialize(StringBuffer& buffer, const LogLevel logLevel, const unsigned int group, const unsigned int requestedStyle) const
 {
     CriticalBlock block(m_sync);
@@ -591,6 +607,15 @@ void CTxSummary::log(const LogLevel logLevel, const unsigned int requestedGroup,
             serialize(summary.clear(), logLevel, requestedGroup, TXSUMMARY_OUT_JSON);
             DBGLOG("%s", summary.str());
         }
+
+        if (requestedStyle & TXSUMMARY_FWD_OTEL)
+        {
+            // String values have already been forwarded and should ignore this serialization
+            // request. Timer values have not been forwarded, and should forward their values.
+            otelConnector = connector.get();
+            serialize(summary.clear(), logLevel, requestedGroup, TXSUMMARY_FWD_OTEL);
+            otelConnector = nullptr;
+        }
     }
 }
 
@@ -662,4 +687,69 @@ CTxSummary::TxEntryBase* CTxSummary::queryEntry(const char* key)
     }
 
     return nullptr;
+}
+
+StringBuffer& CTxOpenTelemetryConnector::normalizeKey(const char* txKey, const char* otKey, StringBuffer& normalized) const
+{
+    getSnakeCase(normalized, isEmptyString(otKey) ? txKey : otKey);
+    // Keys for custom attributes may be annotated to reflect the source here.
+    return normalized;
+}
+
+bool CTxOpenTelemetryConnector::isExcluded(const char* key, LogLevel logLevel, unsigned groupMask) const
+{
+    if ((logLevel > maxLogLevel) || ((groupMask & groupSelector) != groupSelector) || isEmptyString(key))
+        return true;
+    // Redundant attributes may be excluded by key here. For example, if spans include values like
+    // the global ID, it may be preferred to not forward a trace summary-sourced copy.
+    return false;
+}
+
+#define ENSURE_TARGET_AND_NAME \
+    StringBuffer name; \
+    if (isExcluded(normalizeKey(txKey, otKey, name), logLevel, groupMask)) \
+        return; \
+    ISpan* target = context.queryActiveSpan(); \
+    if (!target) \
+        return
+
+void CTxOpenTelemetryConnector::forwardUnsigned(const char* txKey, const char* otKey, uint64_t value, TxUnits units, LogLevel logLevel, unsigned groupMask) const
+{
+    ENSURE_TARGET_AND_NAME;
+    target->setSpanAttribute(name, scale(value, units));
+}
+
+void CTxOpenTelemetryConnector::forwardSigned(const char* txKey, const char* otKey, int64_t value, TxUnits units, LogLevel logLevel, unsigned groupMask) const
+{
+    ENSURE_TARGET_AND_NAME;
+    target->setSpanAttribute(name, uint64_t(scale(value, units)));
+}
+
+void CTxOpenTelemetryConnector::forwardDouble(const char* txKey, const char* otKey, double value, LogLevel logLevel, unsigned groupMask) const
+{
+    ENSURE_TARGET_AND_NAME;
+    StringBuffer tmp;
+    tmp.append(value);
+    target->setSpanAttribute(name, tmp);
+}
+
+void CTxOpenTelemetryConnector::forwardBool(const char* txKey, const char* otKey, bool value, LogLevel logLevel, unsigned groupMask) const
+{
+    ENSURE_TARGET_AND_NAME;
+    target->setSpanAttribute(name, uint64_t(value));
+}
+
+void CTxOpenTelemetryConnector::forwardString(const char* txKey, const char* otKey, const char* value, LogLevel logLevel, unsigned groupMask) const
+{
+    ENSURE_TARGET_AND_NAME;
+    target->setSpanAttribute(name, value);
+}
+
+#undef ENSURE_TARGET_AND_NAME
+
+CTxOpenTelemetryConnector::CTxOpenTelemetryConnector(IEspContext& _context)
+    : context(_context)
+{
+    maxLogLevel = getTxSummaryLevel();
+    groupSelector = getTxSummaryGroup();
 }

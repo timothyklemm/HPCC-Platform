@@ -93,6 +93,7 @@ typedef enum LogRequest_
 
 #define TXSUMMARY_OUT_TEXT      0x00000001
 #define TXSUMMARY_OUT_JSON      0x00000002
+#define TXSUMMARY_FWD_OTEL      0x80000000
 
 #define ESPCTX_NO_NAMESPACES    0x00000001
 #define ESPCTX_WSDL             0x00000010
@@ -104,6 +105,7 @@ class CTxSummary;
 interface IEspSecureContext;
 interface IEspSecureContextEx;
 class CumulativeTimer;
+enum class TxUnits;
 
 interface IEspContext : extends IInterface
 {
@@ -197,9 +199,15 @@ interface IEspContext : extends IInterface
 
     virtual CTxSummary* queryTxSummary()=0;
     virtual void addTraceSummaryValue(unsigned logLevel, const char *name, const char *value, const unsigned int group = TXSUMMARY_GRP_CORE)=0;
+    virtual void addTraceSummaryValue(unsigned logLevel, const char *name, const char *value, const char* otName, unsigned group = TXSUMMARY_GRP_CORE)=0;
     virtual void addTraceSummaryValue(unsigned logLevel, const char *name, __int64 value, const unsigned int group = TXSUMMARY_GRP_CORE)=0;
+    virtual void addTraceSummaryValue(unsigned logLevel, const char *name, __int64 value, const char* otName, unsigned group = TXSUMMARY_GRP_CORE)=0;
+    virtual void addTraceSummaryValue(unsigned logLevel, const char *name, __int64 value, TxUnits units, unsigned group = TXSUMMARY_GRP_CORE)=0;
+    virtual void addTraceSummaryValue(unsigned logLevel, const char *name, __int64 value, const char* otName, TxUnits units, unsigned group = TXSUMMARY_GRP_CORE)=0;
     virtual void addTraceSummaryDoubleValue(unsigned logLevel, const char *name, double value, const unsigned int group = TXSUMMARY_GRP_CORE)=0;
+    virtual void addTraceSummaryDoubleValue(unsigned logLevel, const char *name, double value, const char* otName, unsigned group = TXSUMMARY_GRP_CORE)=0;
     virtual void addTraceSummaryTimeStamp(unsigned logLevel, const char *name, const unsigned int group = TXSUMMARY_GRP_CORE)=0;
+    virtual void addTraceSummaryTimeStamp(unsigned logLevel, const char *name, const char* otName, unsigned group = TXSUMMARY_GRP_CORE)=0;
     virtual void addTraceSummaryCumulativeTime(unsigned logLevel, const char* name, unsigned __int64 time, const unsigned int group = TXSUMMARY_GRP_CORE)=0;
     virtual CumulativeTimer* queryTraceSummaryCumulativeTimer(unsigned logLevel, const char *name, const unsigned int group = TXSUMMARY_GRP_CORE)=0;
     virtual void cancelTxSummary()=0;
@@ -236,6 +244,7 @@ interface IEspContext : extends IInterface
     virtual IHttpMessage* queryRequest() = 0;
 
     virtual void setRequestSpan(ISpan * span)=0;     // Call this function to set the server span for the query.  The spans's lifetime will match the lifetime of the context object.
+    inline void setActiveSpan(ISpan * span) { setRequestSpan(span); }
     virtual ISpan * queryActiveSpan() const = 0;
     virtual IProperties * getClientSpanHeaders() const = 0;
     virtual const char* getGlobalId() const = 0;
