@@ -354,7 +354,7 @@ public:
     void forwardAttribute(const char* txKey, const char* otKey, TValue value, TxUnits units, LogLevel logLevel, unsigned groupMask) const;
 
     /**
-     * @brief Template specialization for string values.
+     * @brief Type-specific overload for string values.
      * 
      * @tparam  
      * @param txKey required key used for trace summary output
@@ -363,11 +363,10 @@ public:
      * @param logLevel minimum requested log level needed to forward the value
      * @param groupMask set of goups that include the value
      */
-    template <>
     void forwardAttribute(const char* txKey, const char* otKey, const char* value, TxUnits, LogLevel logLevel, unsigned groupMask) const;
 
     /**
-     * @brief Template specialization for Boolean values.
+     * @brief Type-specific overload for Boolean values.
      * 
      * @tparam  
      * @param txKey required key used for trace summary output
@@ -376,7 +375,6 @@ public:
      * @param logLevel minimum requested log level needed to forward the value
      * @param groupMask set of goups that include the value
      */
-    template <>
     void forwardAttribute(const char* txKey, const char* otKey, bool value, TxUnits, LogLevel logLevel, unsigned groupMask) const;
 
 protected:
@@ -513,13 +511,11 @@ inline void CTxOpenTelemetryConnector::forwardAttribute(const char* txKey, const
         forwardDouble(txKey, otKey, value, logLevel, groupMask);
 }
 
-template <>
 inline void CTxOpenTelemetryConnector::forwardAttribute(const char* txKey, const char* otKey, const char* value, TxUnits, LogLevel logLevel, unsigned groupMask) const
 {
     forwardString(txKey, otKey, value, logLevel, groupMask);
 }
 
-template <>
 inline void CTxOpenTelemetryConnector::forwardAttribute(const char* txKey, const char* otKey, bool value, TxUnits, LogLevel logLevel, unsigned groupMask) const
 {
     forwardBool(txKey, otKey, value, logLevel, groupMask);
