@@ -514,7 +514,7 @@ public:
 
     virtual void addTraceSummaryValue(LogLevel logLevel, const char *name, const char *value, const unsigned int group = TXSUMMARY_GRP_CORE)
     {
-        addTraceSummaryValue(logLevel, value, nullptr, group);
+        addTraceSummaryValue(logLevel, name, value, nullptr, group);
     }
 
     virtual void addTraceSummaryValue(LogLevel logLevel, const char *name, const char *value, const char* otName, const unsigned int group = TXSUMMARY_GRP_CORE)
