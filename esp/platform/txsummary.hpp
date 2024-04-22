@@ -333,7 +333,7 @@ private:
  * Where `CTxSummary` serializes all values to text, this acts only on the original, unserialized,
  * values.
  */
-class CTxOpenTelemetryConnector : public CInterface
+class txsummary_decl CTxOpenTelemetryConnector : public CInterface
 {
 public:
     /**
