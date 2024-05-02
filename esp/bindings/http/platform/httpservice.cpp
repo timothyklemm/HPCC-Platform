@@ -417,6 +417,28 @@ int CEspHttpServer::processRequest()
             Owned<ISpan> serverSpan = m_request->createServerSpan(serviceName, methodName);
             ctx->setRequestSpan(serverSpan);
 
+            // Per https://opentelemetry.io/docs/specs/semconv/attributes-registry/http/, the value
+            // of http.request.method must be "known to the instrumentation" and is case sensitive.
+            if (streq(method, POST_METHOD) || streq(method, GET_METHOD))
+            {
+                // Most common canonical forms given. Avoid unnecessary copy and case conversion.
+                serverSpan->setSpanAttribute("http.request.method", method.str());
+            }
+            else if (strieq(method, POST_METHOD) || strieq(method, GET_METHOD) || strieq(method, HEAD_METHOD) ||
+                strieq(method, "PUT") || strieq(method, "DELETE") || strieq(method, "CONNECT") ||
+                strieq(method, "TRACE") || strieq(method, "PATCH") || strieq(method, OPTIONS_METHOD))
+            {
+                // "Known" value given in potentially non-canonical form; use canonical form.
+                StringBuffer canonical(method);
+                serverSpan->setSpanAttribute("http.request.method", canonical.toUpperCase().str());
+            }
+            else
+            {
+                // Unexpected value given; record standard catch-all and original value.
+                serverSpan->setSpanAttribute("http.request.method", "_OTHER");
+                serverSpan->setSpanAttribute("http.request.method_original", method.str());
+            }
+
             if (thebinding!=NULL)
             {
                 if(stricmp(method.str(), POST_METHOD)==0)
