@@ -1,0 +1,222 @@
+name: Build LN Security Managers
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_base_ref:
+        type: string
+        description: 'Docker Image Base Version'
+        required: true
+      platform_repo_owner:
+        type: string
+        description: 'Platform Repository Owner'
+        required: false
+        default: 'hpcc-systems'
+      platform_repo_ref:
+        type: string
+        description: 'Platform Repository Reference'
+        required: true
+      plugin_repo_onwer:
+        type: string
+        description: 'Plugin Repository Owner'
+        required: false
+        default: 'hpcc-systems'
+      plugin_repo_ref:
+        type: string
+        description: 'Plugin Repository Reference'
+        required: true
+      asset_tag:
+        type: string
+        description: 'Asset Tag'
+        required: false
+
+jobs:
+  preamble:
+    name: Publish Release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      folder_security_manager_plugin: ${{ steps.vars.outputs.folder_security_manager_plugin }}
+      mount_security_manager_plugin: ${{ steps.vars.outputs.mount_security_manager_plugin }}
+      folder_build: ${{ steps.vars.outputs.folder_build }}
+      mount_build: ${{ steps.vars.outputs.mount_build }}
+      security_manager_plugin_ref: ${{ steps.vars.outputs.security_manager_plugin_ref }}
+      platform_base_image_tag: ${{ steps.tag_vars.outputs.platform_base_image_tag }}
+      platform_ref: ${{ steps.tag_vars.outputs.platform_ref }}
+      mount_platform: ${{ steps.vars.outputs.mount_platform }}
+      mount_platform_build: ${{ steps.vars.outputs.mount_platform_build }}
+      folder_platform: ${{ steps.vars.outputs.folder_platform }}
+      folder_build_platform: ${{ steps.vars.outputs.folder_build_platform }}
+      plugin_sequence: ${{ steps.vars.outputs.plugin_sequence }}
+      tag: ${{ steps.effective_tag.outputs.value }}
+      secmgr_seq: ${{ steps.tag_vars.outputs.secmgr_seq }}
+      platform_repo: ${{ steps.platform_repository.outputs.value }}
+      plugin_repo: ${{ steps.plugin_repository.outputs.value }}
+      upload_assets: ${{ steps.asset_handling.outputs.value }}
+      # For testing and debugging variables only set to false
+      run_build: ${{ true }}
+    steps:
+      # Helpful for troubleshooting- can set a hard-coded tag here to use
+      # when just pushing commits to trigger a build instead of needing
+      # to actually tag a release to test the workflow
+    - name: Determine Effective Tag
+      id: effective_tag
+      run: |
+        if [[ ${{ github.ref }} == refs/tags/* ]]; then
+          echo "value=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        else
+          echo "::error::Action not setup for testing workflow triggered via push to a branch"
+          exit 1
+          # Suggested format of testing tag when triggering a build with a push. Must
+          # be in the expected format with some suffix beginning with a dash:
+          # echo "value=9.4.20-1_seq-225-test" >> $GITHUB_OUTPUT
+        fi
+    - name: Determine Platform Repository
+      id: platform_repository
+      run: |
+        path=$(echo ${{ inputs.platform_repo_owner }}/HPCC-Platform)
+        echo "value==$path" >> $GITHUB_OUTPUT
+    - name: Determine Plugin Repository
+      id: plugin_repository
+      run: |
+        path=$(echo ${{ inputs.plugin_repo_owner }}/HPCC-Platform)
+        echo "value==$path" >> $GITHUB_OUTPUT
+    - name: Determine Asset Uploading
+      id: asset_handling
+      run: |
+        if [ ${{ inputs.asset_tag }} != "" ]
+          upload=$(echo ${{ true }})
+        else
+          upload=$(eche ${{ false }} )
+        fi
+        echo "upload_assets=$upload" >> $GITHUB_OUTPUT
+    - name: Calculate Tag-Derived Variables
+      id: tag_vars
+      run: |
+        platform_major=$(echo ${{ steps.effective_tag.outputs.value }} | cut -d'.' -f1)
+        platform_minor=$(echo ${{ steps.effective_tag.outputs.value }} | cut -d'.' -f2)
+        platform_version=$(echo ${{ steps.effective_tag.outputs.value }} | cut -d'_' -f1)
+        secmgr_seq=$(echo ${{ steps.effective_tag.outputs.value }} | cut -d'-' -f3)
+        echo "platform_base_image_tag=candidate-$platform_major.$platform_minor.x" >> $GITHUB_OUTPUT
+        echo "platform_ref=refs/tags/community_$platform_version" >> $GITHUB_OUTPUT
+        echo "secmgr_seq=$secmgr_seq" >> $GITHUB_OUTPUT
+
+    - name: Calculate Variables
+      id: vars
+      run: |
+        echo "folder_security_manager_plugin=${{ github.workspace }}/esdl-platform-ln-secmgrs" >> $GITHUB_OUTPUT
+        echo 'mount_security_manager_plugin="source=${{ github.workspace }}/esdl-platform-ln-secmgrs",target=/hpcc-dev/esdl-platform-ln-secmgrs,type=bind,consistency=cached' >> $GITHUB_OUTPUT
+        echo "folder_build=${{ github.workspace }}/build-secmgr" >> $GITHUB_OUTPUT
+        echo 'mount_build=source="${{ github.workspace }}/build-secmgr",target=/hpcc-dev/build-secmgr,type=bind,consistency=cached' >> $GITHUB_OUTPUT
+        echo "mount_platform=source=${{ github.workspace }}/HPCC-Platform,target=/hpcc-dev/HPCC-Platform,type=bind,consistency=cached" >> $GITHUB_OUTPUT
+        echo 'mount_platform_build=source="${{ github.workspace }}/build-platform",target=/hpcc-dev/build-platform,type=bind,consistency=cached' >> $GITHUB_OUTPUT
+        echo "folder_platform=${{ github.workspace }}/HPCC-Platform" >> $GITHUB_OUTPUT
+        echo "folder_build_platform=${{ github.workspace }}/build-platform" >> $GITHUB_OUTPUT
+        echo "security_manager_plugin_ref=${{ github.ref }}" >> $GITHUB_OUTPUT
+
+    - name: Print Variables
+      run: |
+        echo "steps.vars.outputs: ${{ toJSON(steps.vars.outputs) }}"
+        echo "steps.tag_vars.outputs: ${{ toJSON(steps.tag_vars.outputs) }}"
+        echo "steps.effective_tag.outputs: ${{ toJSON(steps.effective_tag.outputs) }}"
+
+    - name: Print Context
+      run: |
+        echo 'github context: ${{ toJSON(github) }}'
+    - name: Release Security Manager Plugin
+      uses: ncipollo/release-action@v1.14.0
+      with:
+        allowUpdates: true
+        generateReleaseNotes: false
+        prerelease: ${{ contains(steps.tag_vars.outputs.platform_ref, '-rc') }}
+        tag: ${{ steps.effective_tag.outputs.value }}
+
+  build-docker:
+    name: Build Docker
+    needs: preamble
+    runs-on: ubuntu-22.04
+    if: ${{ needs.preamble.outputs.run_build }}
+    strategy:
+      matrix:
+        include:
+        - os: centos-7
+          cmake_options_extra: "-DVCPKG_TARGET_TRIPLET=x64-centos-7-dynamic"
+        - os: ubuntu-22.04
+        - os: ubuntu-20.04
+      fail-fast: false
+
+    steps:
+    - name: Free additional disk space (remove Android SDK + Tools)
+      run: |
+        sudo rm -rf /usr/local/lib/android
+
+    - name: Checkout Security Manager Plugin
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ needs.preamble.outputs.plugin_repo }}
+        ref: ${{ inputs.plugin_repo_ref }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        submodules: recursive
+        path: ${{ needs.preamble.outputs.folder_security_manager_plugin }}
+
+    - name: Verify Plugin Sequence
+      id: plugin_sequence
+      run: |
+        from_cmake=$(grep "PLUGIN_SEQUENCE" ${{ needs.preamble.outputs.folder_security_manager_plugin }}/version.cmake | tr -c -d '[:digit:]')
+        echo "from_cmake=$from_cmake" >> $GITHUB_OUTPUT
+        if [ "$from_cmake" != "${{ needs.preamble.outputs.secmgr_seq }}" ]; then
+          echo "::error::Plugin sequence mismatch. The sequence in the plugin is $from_cmake but the sequence in the tag is ${{ needs.preamble.outputs.secmgr_seq }}"
+          exit 1
+        fi
+
+    - name: Checkout Platform
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ needs.preamble.outputs.platform_repo }}
+        ref: ${{ inputs.platform_repo_ref }}
+        submodules: recursive
+        path: ${{ needs.preamble.outputs.folder_platform }}
+
+    - name: Set up Docker Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: CMake Package (security manager plugin)
+      run: |
+        mkdir -p ${{ needs.preamble.outputs.folder_build }}
+        mkdir -p ${{ needs.preamble.outputs.folder_build_platform }}
+        sudo rm -f ${{ needs.preamble.outputs.folder_build }}/CMakeCache.txt
+        sudo rm -rf ${{ needs.preamble.outputs.folder_build }}/CMakeFiles
+        sudo rm -f ${{ needs.preamble.outputs.folder_build_platform }}/CMakeCache.txt
+        sudo rm -rf ${{ needs.preamble.outputs.folder_build_platform }}/CMakeFiles
+        docker run --rm \
+          --mount ${{ needs.preamble.outputs.mount_security_manager_plugin }} \
+          --mount ${{ needs.preamble.outputs.mount_build }} \
+          --mount ${{ needs.preamble.outputs.mount_platform }} \
+          --mount ${{ needs.preamble.outputs.mount_platform_build }} \
+          hpccsystems/platform-build-${{ matrix.os }}:${{ inputs.platform_base_ref }} \
+          "cmake -S /hpcc-dev/HPCC-Platform -B /hpcc-dev/build-platform \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCHECK_GIT_TAG=0 -DVCPKG_FILES_DIR=/hpcc-dev -DUSE_LIBARCHIVE=false \
+            -DUSE_SHLIBDEPS=OFF -DUSE_TBBMALLOC=OFF -DUSE_TBBMALLOC_ROXIE=OFF -DUSE_MYSQL=ON -DINCLUDE_PLUGINS=ON ${{ matrix.cmake_options_extra }} && \
+          cmake -S /hpcc-dev/esdl-platform-ln-secmgrs -B /hpcc-dev/build-secmgr \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCHECK_GIT_TAG=0 -DVCPKG_FILES_DIR=/hpcc-dev -DUSE_NATIVE_LIBRARIES=ON \
+            -DUSE_SHLIBDEPS=OFF -USE_LIBMEMCACHED=OFF -DUSE_MYSQL=ON -DUSE_SYBASE=OFF -DINSTALL_VCPKG_CATALOG=OFF ${{ matrix.cmake_options_extra }} &&
+          cmake --build /hpcc-dev/build-secmgr --parallel $(nproc) --target package"
+
+    - name: Upload Assets (security manager plugin)
+      if: ${{ needs.preamble.outputs.upload_assets }}
+      uses: ncipollo/release-action@v1.14.0
+      with:
+        allowUpdates: true
+        generateReleaseNotes: false
+        prerelease: ${{ contains(needs.preamble.outputs.platform_ref, '-rc') }}
+        artifacts: "${{ needs.preamble.outputs.folder_build }}/*.deb,${{ needs.preamble.outputs.folder_build }}/*.rpm"
+        tag: ${{ inputs.asset_tag }}
+
+    - name: Upload error logs
+      if: ${{ failure() || cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.os }}-${{ matrix.ln }}-${{ matrix.container }}-${{ matrix.documentation }}-logs
+        path: ${{ needs.preamble.outputs.folder_build }}/**/*.log
