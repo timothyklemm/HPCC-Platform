@@ -3,7 +3,7 @@ name: Build LN Security Managers
 on:
   workflow_dispatch:
     inputs:
-      platform_base_ref:
+      platform_docker_ref:
         type: string
         description: 'Docker Image Base Version'
         required: true
@@ -25,10 +25,15 @@ on:
         type: string
         description: 'Plugin Repository Reference'
         required: true
-      asset_tag:
+      custom_artifact_tag:
         type: string
-        description: 'Asset Tag'
+        description: 'Custom Artifact Tag'
         required: false
+      upload_assets:
+        type: boolean
+        description: 'Upload Assets'
+        required: false
+        default: false
 
 jobs:
   preamble:
@@ -54,6 +59,7 @@ jobs:
       platform_repo: ${{ steps.platform_repository.outputs.value }}
       plugin_repo: ${{ steps.plugin_repository.outputs.value }}
       upload_assets: ${{ steps.asset_handling.outputs.value }}
+      asset_tag: ${{ steps.asset_handling.outputs.value }}
       # For testing and debugging variables only set to false
       run_build: ${{ true }}
     steps:
@@ -85,12 +91,14 @@ jobs:
     - name: Determine Asset Uploading
       id: asset_handling
       run: |
-        if [ ${{ inputs.asset_tag }} != "" ]
-          upload=$(echo ${{ true }})
-        else
-          upload=$(eche ${{ false }} )
+        if [ ${{ inputs.upload_assets }} ]
+          if [ ${{ inputs.custom_artifact_tag }} != "" ]
+            asset=$(echo ${{ inputs.custom_artifact_tag }})
+          else
+            asset=$(echo ${{ inputs.platform_repo_ref }}-${{ inputs.plugin_repo_ref }})
+          fi
+          echo "asset_tag=$asset" >> $GITHUB_OUTPUT
         fi
-        echo "upload_assets=$upload" >> $GITHUB_OUTPUT
     - name: Calculate Tag-Derived Variables
       id: tag_vars
       run: |
@@ -195,24 +203,25 @@ jobs:
           --mount ${{ needs.preamble.outputs.mount_build }} \
           --mount ${{ needs.preamble.outputs.mount_platform }} \
           --mount ${{ needs.preamble.outputs.mount_platform_build }} \
-          hpccsystems/platform-build-${{ matrix.os }}:${{ inputs.platform_base_ref }} \
+          hpccsystems/platform-build-${{ matrix.os }}:${{ inputs.platform_docker_ref }} \
           "cmake -S /hpcc-dev/HPCC-Platform -B /hpcc-dev/build-platform \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCHECK_GIT_TAG=0 -DVCPKG_FILES_DIR=/hpcc-dev -DUSE_LIBARCHIVE=false \
             -DUSE_SHLIBDEPS=OFF -DUSE_TBBMALLOC=OFF -DUSE_TBBMALLOC_ROXIE=OFF -DUSE_MYSQL=ON -DINCLUDE_PLUGINS=ON ${{ matrix.cmake_options_extra }} && \
           cmake -S /hpcc-dev/esdl-platform-ln-secmgrs -B /hpcc-dev/build-secmgr \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCHECK_GIT_TAG=0 -DVCPKG_FILES_DIR=/hpcc-dev -DUSE_NATIVE_LIBRARIES=ON \
-            -DUSE_SHLIBDEPS=OFF -USE_LIBMEMCACHED=OFF -DUSE_MYSQL=ON -DUSE_SYBASE=OFF -DINSTALL_VCPKG_CATALOG=OFF ${{ matrix.cmake_options_extra }} &&
+            -DUSE_SHLIBDEPS=OFF -USE_LIBMEMCACHED=OFF -DUSE_MYSQL=ON -DARTIFACT_REF=${{ inputs.custom_artifact_tag }} -DPLATFORM_REF=${{ inputs.platform_repo_ref }}
+            -DPLUGIN_REF=${{ inputs.plugin_repo_ref }} -DINSTALL_VCPKG_CATALOG=OFF ${{ matrix.cmake_options_extra }} &&
           cmake --build /hpcc-dev/build-secmgr --parallel $(nproc) --target package"
 
     - name: Upload Assets (security manager plugin)
-      if: ${{ needs.preamble.outputs.upload_assets }}
+      if: ${{ inputs.upload_assets }}
       uses: ncipollo/release-action@v1.14.0
       with:
         allowUpdates: true
         generateReleaseNotes: false
         prerelease: ${{ contains(needs.preamble.outputs.platform_ref, '-rc') }}
         artifacts: "${{ needs.preamble.outputs.folder_build }}/*.deb,${{ needs.preamble.outputs.folder_build }}/*.rpm"
-        tag: ${{ inputs.asset_tag }}
+        tag: ${{ needs.preamble.outputs.asset_tag }}
 
     - name: Upload error logs
       if: ${{ failure() || cancelled() }}
