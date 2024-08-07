@@ -40,6 +40,7 @@ jobs:
       candidate_branch: ${{ steps.vars.outputs.candidate_branch }}
       cmake_docker_config: ${{ steps.vars.outputs.cmake_docker_config }}
       gpg_import: ${{ steps.vars.outputs.gpg_import }}
+      run_build: ${{ false }}
     steps:
       - name: Calculate vars
         id: vars
@@ -68,6 +69,7 @@ jobs:
       - name: Print vars
         run: |
           echo "${{ toJSON(steps.vars.outputs) }})"
+          echo "${{ toJSON(github)}}"
 
       - name: Release HPCC-Platform
         uses: ncipollo/release-action@v1.14.0
@@ -80,6 +82,7 @@ jobs:
     name: Build Docker
     needs: preamble
     runs-on: ubuntu-22.04
+    if: ${{ needs.preamble.outputs.run_build }}
     strategy:
       matrix:
         include:
