@@ -83,22 +83,22 @@ jobs:
     - name: Calculate vars
       id: vars
       run: |
-        if [[ ${{ inputs.platform_owner }} == "" ]]; then
+        if [[ "${{ inputs.platform_owner }}" == "" ]]; then
           platform_owner=${{ github.repository_owner }}/HPCC-Platform
         else
           platform_owner=${{ inputs.platform_owner }}
         fi
         platform_ref_type=${{ inputs.platform_ref_type }}
-        if [[ ${{ inputs.platform_ref }} == "" ]]; then
+        if [[ "${{ inputs.platform_ref }}" == "" ]]; then
           echo "Platform Reference is required"
           exit 1
-        elif [[ $platform_ref_type == "branch" ]]; then
+        elif [[ "$platform_ref_type" == "branch" ]]; then
           platform_ref=refs/heads/${{ inputs.platform_ref }}
           platform_ref_name=$(echo $platform_ref | cut -d'/' -f3)
-        elif [[ $platform_ref_type == "tag" ]]; then
+        elif [[ "$platform_ref_type" == "tag" ]]; then
           platform_ref=refs/tags/${{ inputs.platform_ref }}
           platform_ref_name=$(echo $platform_ref | cut -d'/' -f3)
-        elif [[ $platform_ref_type == "commit" ]]; then
+        elif [[ "$platform_ref_type" == "commit" ]]; then
           platform_ref=${{ inputs.platform_ref }}
           platform_ref_name=$platform_ref
         fi
@@ -111,22 +111,22 @@ jobs:
         echo "platform_build_folder=${{ github.workspace }}/build-platform" >> $GITHUB_OUTPUT
         echo 'platform_build_mount=source="${{ github.workspace }}/build-platform",target=/hpcc-dev/build-platform,type=bind,consistency=cached' >> $GITHUB_OUTPUT
 
-        if [[ ${{ inputs.plugin_owner }} == "" ]]; then
+        if [[ "${{ inputs.plugin_owner }}" == "" ]]; then
           plugin_owner=$platform_owner
         else
           plugin_owner=${{ inputs.plugin_owner }}
         fi
         plugin_ref_type=${{ inputs.plugin_ref_type }}
-        if [[ ${{ inputs.plugin_ref }} == "" ]]; then
+        if [[ "${{ inputs.plugin_ref }}" == "" ]]; then
           echo "Plugin Reference is required"
           exit 1
-        elif [[ $plugin_ref_type == "branch" ]]; then
+        elif [[ "$plugin_ref_type" == "branch" ]]; then
           plugin_ref=refs/heads/${{ inputs.plugin_ref }}
           plugin_ref_name=$(echo $plugin_ref | cut -d'/' -f3)
-        elif [[ $plugin_ref_type == "tag" ]]; then
+        elif [[ "$plugin_ref_type" == "tag" ]]; then
           plugin_ref=refs/tags/${{ inputs.plugin_ref }}
           plugin_ref_name=$(echo $plugin_ref | cut -d'/' -f3)
-        elif [[ $plugin_ref_type == "commit" ]]; then
+        elif [[ "$plugin_ref_type" == "commit" ]]; then
           plugin_ref=${{ inputs.plugin_ref }}
           plugin_ref_name=$plugin_ref
         fi
@@ -143,7 +143,7 @@ jobs:
         echo "docker_tag=$docker_tag" >> $GITHUB_OUTPUT
 
         upload_assets=${{ inputs.upload_assets }}
-        if [[ ${{ inputs.custom_artifact_tag }} != "" ]]; then
+        if [[ "${{ inputs.custom_artifact_tag }}" != "" ]]; then
           asset_tag=$(echo ${{ inputs.custom_artifact_tag }})
         else
           asset_tag=$(echo $platform_ref_name-$plugin_ref_name)
