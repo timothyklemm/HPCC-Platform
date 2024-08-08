@@ -84,7 +84,7 @@ jobs:
       id: vars
       run: |
         if [[ "${{ inputs.platform_owner }}" == "" ]]; then
-          platform_owner=${{ github.repository_owner }}/HPCC-Platform
+          platform_owner=${{ github.repository_owner }}
         else
           platform_owner=${{ inputs.platform_owner }}
         fi
