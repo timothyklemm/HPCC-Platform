@@ -105,7 +105,7 @@ jobs:
         echo "platform_owner=$platform_owner" >> $GITHUB_OUTPUT
         echo "platform_ref=$platform_ref" >> $GITHUB_OUTPUT
         echo "platform_ref_type=$platform_ref_type" >> $GITHUB_OUTPUT
-        echo "platform_ref_name==$platform_ref_name" >> $GITHUB_OUTPUT
+        echo "platform_ref_name=$platform_ref_name" >> $GITHUB_OUTPUT
         echo "platform_folder=${{ github.workspace}}/HPCC-Platform" >> $GITHUB_OUTPUT
         echo "platform_mount=source=${{ github.workspace }}/HPCC-Platform,target=/hpcc-dev/HPCC-Platform,type=bind,consistency=cached" >> $GITHUB_OUTPUT
         echo "platform_build_folder=${{ github.workspace }}/build-platform" >> $GITHUB_OUTPUT
@@ -154,7 +154,6 @@ jobs:
     - name: Print Variables
       run: |
         echo "${{ toJSON(steps.vars.outputs) }}"
-        echo "${{ toJSON(github) }}"
 
     - name: Release Security Manager Plugin
       uses: ncipollo/release-action@v1.14.0
