@@ -183,6 +183,14 @@ jobs:
       run: |
         sudo rm -rf /usr/local/lib/android
 
+    - name: Checkout Platform
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ needs.preamble.outputs.platform_owner }}/HPCC-Platform
+        ref: ${{ needs.preamble.outputs.platform_ref }}
+        submodules: recursive
+        path: ${{ needs.preamble.outputs.platform_folder }}
+
     - name: Checkout Security Manager Plugin
       uses: actions/checkout@v4
       with:
@@ -191,14 +199,6 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         submodules: recursive
         path: ${{ needs.preamble.outputs.plugin_folder }}
-
-    - name: Checkout Platform
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ needs.preamble.outputs.platform_owner }}/HPCC-Platform
-        ref: ${{ needs.preamble.outputs.platform_ref }}
-        submodules: recursive
-        path: ${{ needs.preamble.outputs.platform_folder }}
 
     - name: Calculate vars
       id: vars
