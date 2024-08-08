@@ -107,7 +107,7 @@ jobs:
         echo "platform_ref_type=$platform_ref_type" >> $GITHUB_OUTPUT
         echo "platform_ref_name=$platform_ref_name" >> $GITHUB_OUTPUT
         echo "platform_folder=${{ github.workspace}}/HPCC-Platform" >> $GITHUB_OUTPUT
-        echo "platform_mount=source=${{ github.workspace }}/HPCC-Platform,target=/hpcc-dev/HPCC-Platform,type=bind,consistency=cached" >> $GITHUB_OUTPUT
+        echo 'platform_mount=source="${{ github.workspace }}/HPCC-Platform",target=/hpcc-dev/HPCC-Platform,type=bind,consistency=cached' >> $GITHUB_OUTPUT
         echo "platform_build_folder=${{ github.workspace }}/build-platform" >> $GITHUB_OUTPUT
         echo 'platform_build_mount=source="${{ github.workspace }}/build-platform",target=/hpcc-dev/build-platform,type=bind,consistency=cached' >> $GITHUB_OUTPUT
 
@@ -135,7 +135,7 @@ jobs:
         echo "plugin_ref_type=$plugin_ref_type" >> $GITHUB_OUTPUT
         echo "plugin_ref_name=$plugin_ref_name" >> $GITHUB_OUTPUT
         echo "plugin_folder=${{ github.workspace }}/esdl-platform-ln-secmgrs" >> $GITHUB_OUTPUT
-        echo 'plugin_mount="source=${{ github.workspace }}/esdl-platform-ln-secmgrs",target=/hpcc-dev/esdl-platform-ln-secmgrs,type=bind,consistency=cached' >> $GITHUB_OUTPUT
+        echo 'plugin_mount=source="${{ github.workspace }}/esdl-platform-ln-secmgrs",target=/hpcc-dev/esdl-platform-ln-secmgrs,type=bind,consistency=cached' >> $GITHUB_OUTPUT
         echo "plugin_build_folder=${{ github.workspace }}/build-secmgr" >> $GITHUB_OUTPUT
         echo 'plugin_build_mount=source="${{ github.workspace }}/build-secmgr",target=/hpcc-dev/build-secmgr,type=bind,consistency=cached' >> $GITHUB_OUTPUT
 
