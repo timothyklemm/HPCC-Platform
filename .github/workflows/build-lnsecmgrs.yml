@@ -74,7 +74,6 @@ jobs:
       plugin_ref_name: ${{ steps.vars.outputs.plugin_ref_name }}
       upload_assets: ${{ steps.vars.outputs.upload_assets }}
       asset_tag: ${{ steps.vars.outputs.asset_tag }}
-      # For testing and debugging variables only set to false
       run_build: ${{ false }}
     steps:
       # Helpful for troubleshooting- can set a hard-coded tag here to use
