@@ -74,7 +74,7 @@ jobs:
       plugin_ref_name: ${{ steps.vars.outputs.plugin_ref_name }}
       upload_assets: ${{ steps.vars.outputs.upload_assets }}
       asset_tag: ${{ steps.vars.outputs.asset_tag }}
-      run_build: ${{ false }}
+      run_build: false
     steps:
       # Helpful for troubleshooting- can set a hard-coded tag here to use
       # when just pushing commits to trigger a build instead of needing
