@@ -46,6 +46,7 @@
 #include "daclient.hpp"
 #include "workunit.hpp"
 #include "cumulativetimer.hpp"
+#include "secmanagertracedecorator.hpp"
 #include <memory>
 
 #include "esdl_def_helper.hpp"
@@ -972,7 +973,7 @@ bool EspHttpBinding::basicAuth(IEspContext* ctx)
         return false;
     }
 
-    bool authenticated = m_secmgr->authorize(*user, rlist, ctx->querySecureContext());
+    bool authenticated = CSecManagerTraceDecorator(*m_secmgr).authorize(*user, rlist, ctx->querySecureContext());
     if(!authenticated)
     {
         VStringBuffer err("User %s : ", user->getName());
