@@ -67,11 +67,15 @@ public:
 /**
  * @brief Macro used start tracing a block of code in the security manager decorator.
  *
- * Create a new named client span and enter a try block. Used with END_SEC_MANAGER_TRACE_BLOCK,
+ * Create a new named internal span and enter a try block. Used with END_SEC_MANAGER_TRACE_BLOCK,
  * provides consistent timing and exception handling for the inned code block.
+ *
+ * Some security manager requests include outgoing remote calls, but the ESP does not assume
+ * which requests are remote. Managers making remote calls may considier creating client spans
+ * as needed.
  */
 #define START_SEC_MANAGER_TRACE_BLOCK(name) \
-    OwnedSpanScope spanScope(queryThreadedActiveSpan()->createClientSpan(name)); \
+    OwnedSpanScope spanScope(queryThreadedActiveSpan()->createInternalSpan(name)); \
     try \
     {
 
