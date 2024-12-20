@@ -71,6 +71,9 @@ public:
         //CPPUNIT_TEST(testJTraceJLOGExporterprintResources);
         //CPPUNIT_TEST(testJTraceJLOGExporterprintAttributes);
         CPPUNIT_TEST(manualTestsDeclaredSpanStartTime);
+        CPPUNIT_TEST(testTraceFlagsState);
+        CPPUNIT_TEST(testTraceFlagsSpanPredicate);
+        CPPUNIT_TEST(testSpanBlocks);
     CPPUNIT_TEST_SUITE_END();
 
     const char * simulatedGlobalYaml = R"!!(global:
@@ -844,6 +847,88 @@ protected:
             CPPUNIT_ASSERT_EQUAL_MESSAGE("Unexpected Declared Parent SpanID detected", true,
              strsame("4b960b3e4647da3f", retrievedSpanCtxAttributes->queryProp("remoteParentSpanID")));
         }
+    }
+
+    void testTraceFlagsState()
+    {
+        constexpr TraceFlags defaultFlags = TraceFlags::Standard | TraceFlags::flag1 | TraceFlags::flag2;
+        constexpr TraceFlags changeFlags = TraceFlags::flag2 | TraceFlags::flag3;
+        updateTraceFlags(defaultFlags);
+        {
+            TraceFlagsState state;
+            CPPUNIT_ASSERT_EQUAL(defaultFlags, queryTraceFlags());
+            updateTraceFlags(changeFlags);
+        }
+        CPPUNIT_ASSERT_EQUAL(defaultFlags, queryTraceFlags());
+        {
+            TraceFlagsState state(changeFlags, TraceFlagsState::Enable);
+            CPPUNIT_ASSERT_EQUAL(defaultFlags | changeFlags, queryTraceFlags());
+        }
+        CPPUNIT_ASSERT_EQUAL(defaultFlags, queryTraceFlags());
+        {
+            TraceFlagsState state(changeFlags, TraceFlagsState::Disable);
+            CPPUNIT_ASSERT_EQUAL(defaultFlags & ~changeFlags, queryTraceFlags());
+        }
+        CPPUNIT_ASSERT_EQUAL(defaultFlags, queryTraceFlags());
+        {
+            TraceFlagsState state(changeFlags, TraceFlagsState::Replace);
+            CPPUNIT_ASSERT_EQUAL(changeFlags, queryTraceFlags());
+        }
+        CPPUNIT_ASSERT_EQUAL(defaultFlags, queryTraceFlags());
+        {
+            struct expected : public std::exception {};
+            auto throws = [changeFlags]() {
+                try
+                {
+                    TraceFlagsState state(changeFlags, TraceFlagsState::Modification(-1));
+                }
+                catch(IException* e)
+                {
+                    e->Release();
+                    throw expected();
+                }
+            };
+            CPPUNIT_ASSERT_THROW(throws(), expected);
+        }
+    }
+
+    void testTraceFlagsSpanPredicate()
+    {
+        {
+            TraceFlagsState state(TraceFlags::None | TraceFlags::flag1, TraceFlagsState::Replace);
+            CPPUNIT_ASSERT_EQUAL(false, TraceFlagsSpanPredicate(TraceFlags::flag1)());
+        }
+        {
+            TraceFlagsState state(TraceFlags::Standard | TraceFlags::flag1, TraceFlagsState::Replace);
+            CPPUNIT_ASSERT_EQUAL(true, TraceFlagsSpanPredicate(TraceFlags::flag1)());
+        }
+        {
+            TraceFlagsState state(TraceFlags::Standard | TraceFlags::flag1, TraceFlagsState::Replace);
+            CPPUNIT_ASSERT_EQUAL(false, TraceFlagsSpanPredicate(TraceFlags::flag2)());
+        }
+    }
+
+    void testSpanBlocks()
+    {
+        SpanTimeStamp start;
+        start.now();
+        // test that all macros expand as expected
+        START_CLIENT_SPAN_BLOCK("start_client_span_block")
+        END_SPAN_BLOCK
+        START_CLIENT_SPAN_BLOCK_EX("start_client_span_block_ex", &start)
+        END_SPAN_BLOCK
+        START_CONDITIONAL_CLIENT_SPAN_BLOCK("start_conditional_client_span_block", []() { return true; })
+        END_SPAN_BLOCK
+        START_CONDITIONAL_CLIENT_SPAN_BLOCK_EX("start_conditional_client_span_block_ex", []() { return true; }, &start)
+        END_SPAN_BLOCK
+        START_INTERNAL_SPAN_BLOCK("start_internal_span_block")
+        END_SPAN_BLOCK
+        START_INTERNAL_SPAN_BLOCK_EX("start_internal_span_block_ex", &start)
+        END_SPAN_BLOCK
+        START_CONDITIONAL_INTERNAL_SPAN_BLOCK("start_conditional_internal_span_block", []() { return true; })
+        END_SPAN_BLOCK
+        START_CONDITIONAL_INTERNAL_SPAN_BLOCK_EX("start_conditional_internal_span_block_ex", []() { return true; }, &start)
+        END_SPAN_BLOCK
     }
 };
 

@@ -18,6 +18,7 @@
 #ifndef JTRACE_HPP
 #define JTRACE_HPP
 #include <chrono>
+#include <functional>
 
 /**
  * @brief This follows open telemetry's span attribute naming conventions
@@ -325,6 +326,95 @@ protected:
     Owned<ISpan> prev;
 };
 
+extern ISpan * queryThreadedActiveSpan();
+
+// Function that returns true if a span is allowed, and false otherwise.
+using ChildSpanPredicate = std::function<bool()>;
+
+// Choose the correct parent span based on the evaluation of a caller-defined predicate function.
+// The current thread's active span is used when no predicate is given and when the given predicate
+// returns true. The NULL span is used when the given predicate returns false, suppressing trace
+// output for the block.
+inline ISpan * queryConditionalParentSpan(ChildSpanPredicate predicate)
+{
+    return (!predicate || predicate() ? queryThreadedActiveSpan() : queryNullSpan());
+}
+
+// Open a new code block, within which the current thread's active span may be updated and a try-
+// catch block is started.
+
+#define START_CLIENT_SPAN_BLOCK(name) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryThreadedActiveSpan()->createClientSpan(name)); \
+        try \
+        {
+
+#define START_CLIENT_SPAN_BLOCK_EX(name, spanStart) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryThreadedActiveSpan()->createClientSpan(name, spanStart)); \
+        try \
+        {
+
+#define START_CONDITIONAL_CLIENT_SPAN_BLOCK(name, predicate) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryConditionalParentSpan(predicate)->createClientSpan(name)); \
+        try \
+        {
+
+#define START_CONDITIONAL_CLIENT_SPAN_BLOCK_EX(name, predicate, spanStart) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryConditionalParentSpan(predicate)->createClientSpan(name, spanStart)); \
+        try \
+        {
+
+#define START_INTERNAL_SPAN_BLOCK(name) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryThreadedActiveSpan()->createInternalSpan(name)); \
+        try \
+        {
+
+#define START_INTERNAL_SPAN_BLOCK_EX(name, spanStart) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryThreadedActiveSpan()->createInternalSpan(name, spanStart)); \
+        try \
+        {
+
+#define START_CONDITIONAL_INTERNAL_SPAN_BLOCK(name, predicate) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryConditionalParentSpan(predicate)->createInternalSpan(name)); \
+        try \
+        {
+
+#define START_CONDITIONAL_INTERNAL_SPAN_BLOCK_EX(name, predicate, spanStart) \
+    { \
+        OwnedActiveSpanScope __spanScope(queryConditionalParentSpan(predicate)->createInternalSpan(name, spanStart)); \
+        try \
+        {
+
+// Termination of the try portion of a try-catch block presumably started by one of the macros
+// abobe. Exception handling in the catch blocks is standardized to ensure that spans whose scopes
+// are exited by exception accurately reflect this status.
+#define END_SPAN_BLOCK \
+        } \
+        catch (IException *e) \
+        { \
+            __spanScope->recordException(e); \
+            throw; \
+        } \
+        catch (std::exception &e) \
+        { \
+            Owned<IException> esp(makeStringException(-1, e.what())); \
+            __spanScope->recordException(esp); \
+            throw; \
+        } \
+        catch (...) \
+        { \
+            Owned<IException> e(makeStringException(-1, "unknown exception")); \
+            __spanScope->recordException(e); \
+            throw; \
+        } \
+    }
+
 /*
   To use feature-level tracing flags, protect the tracing with a test such as:
   
@@ -408,6 +498,7 @@ constexpr TraceFlags traceFilters = TraceFlags::flag6;
 constexpr TraceFlags traceKafka = TraceFlags::flag7;
 constexpr TraceFlags traceJava = TraceFlags::flag8;
 constexpr TraceFlags traceOptimizations = TraceFlags::flag9;        // code generator, but IHqlExpressions also used by esp/engines
+constexpr TraceFlags traceSecMgr = TraceFlags::flag10;              // security manager
 
 // Specific to Roxie
 constexpr TraceFlags traceRoxieLock = TraceFlags::flag16;
@@ -495,5 +586,35 @@ extern jlib_decl TraceFlags queryDefaultTraceFlags();
 // See also the workunit-variant in workunit.hpp
 
 extern jlib_decl TraceFlags loadTraceFlags(const IPropertyTree * globals, const std::initializer_list<TraceOption> & y, TraceFlags dft);
+
+// Functor to use with either START_CONDITIONAL_CLIENT_SPAN_BLOCK or START_CONDITIONAL_INTERNAL_SPAN_BLOCK.
+// Uses doTrace whether or not a conditional span is created.
+struct TraceFlagsSpanPredicate
+{
+    TraceFlags feature;
+    TraceFlags level;
+
+    TraceFlagsSpanPredicate(TraceFlags _feature, TraceFlags _level = TraceFlags::Standard) : feature(_feature), level(_level) {}
+    bool operator () () const { return doTrace(feature, level); }
+};
+
+// Utility to temporarily save and restore the current thread's trave flags. Changes made during the
+// scope of this object will be undone when the object goes out of scope.
+class TraceFlagsState
+{
+public:
+    enum Modification
+    {
+        Enable,  // add the given flags to the current flags
+        Disable, // clear the given flags from the current flags
+        Replace  // replace the current flags with the given flags
+    };
+private:
+    TraceFlags original = queryTraceFlags();
+public:
+    TraceFlagsState() {}
+    TraceFlagsState(TraceFlags flags, Modification mod);
+    ~TraceFlagsState() { updateTraceFlags(original); }
+};
 
 #endif

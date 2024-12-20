@@ -1783,6 +1783,7 @@ public:
 
             char* attrs[] = {"cn", "userAccountControl", "pwdLastSet", "givenName", "sn", "employeeId", "distinguishedName", "employeeNumber", NULL};
 
+            START_CONDITIONAL_CLIENT_SPAN_BLOCK(VStringBuffer("security.authenticate.%s", username), TraceFlagsSpanPredicate(traceSecMgr));
             Owned<ILdapConnection> lconn = m_connections->getConnection();
             LDAP* sys_ld = lconn.get()->getLd();
             CLDAPMessage searchResult;
@@ -2026,6 +2027,7 @@ public:
                 }
                 return false;
             }
+            END_SPAN_BLOCK
             user.setAuthenticateStatus(AS_AUTHENTICATED);
         }
         //Always retrieve user info(SID, UID, fullname, etc) for Active Directory, when the user first logs in.
@@ -2080,6 +2082,7 @@ public:
             return true;
         }
 
+        START_CONDITIONAL_CLIENT_SPAN_BLOCK("security.authorize", TraceFlagsSpanPredicate(traceSecMgr));
         if(rtype == RT_FILE_SCOPE)
         {
             SecAccessFlags defaultFileScopePermission = queryDefaultPermission(user);
@@ -2210,6 +2213,7 @@ public:
                 ok = m_pp->getPermissions(user, sdlist, resources);
             return ok;
         }
+        END_SPAN_BLOCK
     }
 
     // Returns true if all resources are correctly added, otherwise returns false.
@@ -5145,6 +5149,13 @@ private:
             const char* rname = res.getName();
             if(rname == NULL || *rname == '\0')
                 throw MakeStringException(-1, "resource name can't be empty inside authorizeScope");
+
+            if (doTrace(traceSecMgr, traceDetailed))
+            {
+                StringBuffer key("security.authorize.");
+                getSnakeCase(key, resTypeDesc(res.getResourceType()));
+                queryThreadedActiveSpan()->setSpanAttribute(key, rname);
+            }
 
             CSecurityDescriptor* matchedsd = NULL;
             ForEachItemIn(z, sdlist)

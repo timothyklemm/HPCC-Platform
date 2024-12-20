@@ -1528,6 +1528,10 @@ aindex_t CLdapSecManager::getManagedScopeTree(SecResourceType rtype, const char 
 
 SecAccessFlags CLdapSecManager::queryDefaultPermission(ISecUser& user, IEspSecureContext* secureContext)
 {
+    // The client calls a method that can add attributes to a span that hasn't been created.
+    // We don't want attributes addded to spans not (indirectly) created by the manager.
+    // Suppress manager tracing until a broader solution is implemented in this manager.
+    TraceFlagsState suppress(traceSecMgr, TraceFlagsState::Disable);
     return m_ldap_client->queryDefaultPermission(user);
 }
 
