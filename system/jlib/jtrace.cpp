@@ -1574,6 +1574,43 @@ void OwnedActiveSpanScope::clear()
 
 OwnedActiveSpanScope::~OwnedActiveSpanScope()
 {
+    // The theory is that if we're in an exception-induced stack unwind, we would like to obtain
+    // and rethrow the current exception to ourselves for proper span updating. Once the span is
+    // updated, we want to rethow the exception to obtain existing behavior.
+    //
+    // If this works, the macros managing try-catch blocks for an owned span are not needed. Span
+    // creation can be encapsulated in functions that returns the appropriate span to use,
+    // assuming the any shortcuts are needed.
+    if (span)
+    {
+#if __cplusplus >= 201703L
+        if (std::uncaught_exceptions() > 0)
+#else
+        if (std::uncaught_exception())
+#endif
+        {
+            std::exception_ptr cur = std::current_exception();
+            try
+            {
+                std::rethrow_exception(cur);
+            }
+            catch (IException* e)
+            {
+                span->recordException(e, true, true);
+                std::rethrow_exception(cur);
+            }
+            catch(const std::exception& e)
+            {
+                span->recordException(makeStringException(-1, e.what()), true, true);
+                std::rethrow_exception(cur);
+            }
+            catch (...)
+            {
+                span->recordException(makeStringException(-1, "unknown exception"), true, true);
+                std::rethrow_exception(cur);
+            }
+        }
+    }
     clear();
 }
 
