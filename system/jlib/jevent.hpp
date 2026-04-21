@@ -124,16 +124,24 @@ inline bool eventInAnyContext(EventType event, EventContext context)
     return (eventContext & (context & EventCtxAll)) != EventCtxNone;
 }
 
-// The attributes that can be associated with each event.
-// The order should not be changed, or items removed. New values should always be appended before EvAttrMax.
+// This is the source of truth regarding event attribute values. It provides the public definition
+// of the EventAttr enumeration below, as well as arrays used internally.
+//
+// The order should not be changed, or items removed. New values should always be appended to the
+// end of the list. EvAttrMax, defined only in the enumeration, remains as the attribute count.
+#define FOR_EACH_EVENT_ATTRIBUTE_WITH_UNIT(DO) \
+    DO(None, none, none) \
+    FOR_EACH_EVENT_ATTR_VALUE(DO)
+
+#define FOR_EACH_EVENT_ATTRIBUTE(DO) FOR_EACH_EVENT_ATTRIBUTE_WITH_UNIT(DO)
+
+#define EVENT_ATTR_ENUM(tag, type, unit) EvAttr##tag,
 enum EventAttr : byte
 {
-    EvAttrNone,
-#define DEFINE_EVENTATTR_ENUM(name, type, unit) EvAttr##name,
-    FOR_EACH_EVENT_ATTR_VALUE(DEFINE_EVENTATTR_ENUM)
-#undef DEFINE_EVENTATTR_ENUM
+    FOR_EACH_EVENT_ATTRIBUTE_WITH_UNIT(EVENT_ATTR_ENUM)
     EvAttrMax
 };
+#undef EVENT_ATTR_ENUM
 
 // The different data types of attributes that can be associated with an event.
 enum EventAttrType
@@ -149,6 +157,17 @@ enum EventAttrType
     EATtraceid,     // should probably delete...
     EATmax
 };
+
+// Utility function to determine at compile time if an attribute requires text storage in an event.
+constexpr bool isEventAttrText(EventAttrType type) {
+    return type == EATstring || type == EATtimestamp || type == EATtraceid;
+}
+
+// The number of event attributes for which text storage may be required in an event. Calculated
+// at compile time to define the bounds of a StringBuffer array.
+#define EVENT_ATTR_IS_TEXT(tag, type, unit) + (isEventAttrText(EAT##type) ? 1 : 0)
+constexpr size_t EvAttrTextCount = 0 FOR_EACH_EVENT_ATTRIBUTE_WITH_UNIT(EVENT_ATTR_IS_TEXT);
+#undef EVENT_ATTR_IS_TEXT
 
 enum EventAttrTypeClass : byte
 {
@@ -199,16 +218,18 @@ public:
     enum State : byte { Unused, Defined, Assigned };
 
 public:
-    EventAttr queryId() const;
+    CEventAttribute(const CEventAttribute&) = delete;
+    CEventAttribute(CEventAttribute&&) = delete;
+    EventAttr queryId() const { return id; }
     EventAttrTypeClass queryTypeClass() const;
-    inline bool isTimestamp() const { return EATCtimestamp == queryTypeClass(); }
-    inline bool isText() const { return EATCtext == queryTypeClass() || isTimestamp(); }
-    inline bool isNumeric() const { return EATCnumeric == queryTypeClass() || isTimestamp(); }
-    inline bool isBoolean() const { return EATCboolean == queryTypeClass(); }
-    inline State queryState() const { return state; }
-    inline bool isUnused() const { return Unused == queryState(); }
-    inline bool isDefined() const { return Defined == queryState(); }
-    inline bool isAssigned() const { return Assigned == queryState(); }
+    bool isTimestamp() const { return EATCtimestamp == queryTypeClass(); }
+    bool isText() const { return EATCtext == queryTypeClass() || isTimestamp(); }
+    bool isNumeric() const { return EATCnumeric == queryTypeClass() || isTimestamp(); }
+    bool isBoolean() const { return EATCboolean == queryTypeClass(); }
+    State queryState() const { return state; }
+    bool isUnused() const { return Unused == queryState(); }
+    bool isDefined() const { return Defined == queryState(); }
+    bool isAssigned() const { return Assigned == queryState(); }
     void setValue(const char* value);
     void setValue(__uint64 value);
     void setValue(bool value);
@@ -219,9 +240,37 @@ public:
     void setup(EventAttr attr);
     // Called once per logical event to restore the original state of this instance
     void reset(State _state);
+    void resetWithoutText(State _state) {
+        state = _state;
+        number = 0;
+        boolean = false;
+    }
 
+public:
+    CEventAttribute() = default;
+    void bindText(StringBuffer* _text) { text = _text; }
+    // Assignment operator: copies attribute values and text content, but does NOT rebind the
+    // text pointer. Both attributes must be bound to their respective pool buffers beforehand.
+    // This preserves the pool reference semantics: each attribute retains its dedicated pool slot.
+    CEventAttribute& operator=(const CEventAttribute& other)
+    {
+        if (this != &other)
+        {
+            assertex(id == other.id);
+            number = other.number;
+            boolean = other.boolean;
+            state = other.state;
+            if (text && other.text)
+            {
+                size_t len = other.text->length();
+                if (len || text->length())
+                    text->clear().append(len, other.text->str());
+            }
+        }
+        return *this;
+    }
 protected:
-    mutable StringBuffer text; // mutable allows `queryTextValue() const` to generate timestamp strings on demand
+    mutable StringBuffer* text{nullptr}; // owned by the caller of bindText
     __uint64 number{0};
     bool boolean{false};
     EventAttr id{EvAttrNone};
@@ -396,12 +445,12 @@ public:
     };
 
 public:
-    EventType queryType() const;
-    bool isAttribute(EventAttr attr) const;
-    bool hasAttribute(EventAttr attr) const;
+    EventType queryType() const { return type; }
+    bool isAttribute(EventAttr attr) const { return attr < EvAttrMax && !attributes[attr].isUnused(); }
+    bool hasAttribute(EventAttr attr) const { return attr < EvAttrMax && attributes[attr].isAssigned(); }
     bool isComplete() const;
-    CEventAttribute& queryAttribute(EventAttr attr);
-    const CEventAttribute& queryAttribute(EventAttr attr) const;
+    CEventAttribute& queryAttribute(EventAttr attr) { assertex(EvAttrNone < attr && attr < EvAttrMax); return attributes[attr]; }
+    const CEventAttribute& queryAttribute(EventAttr attr) const { assertex(EvAttrNone < attr && attr < EvAttrMax); return attributes[attr]; }
     bool isTextAttribute(EventAttr attr) const;
     bool isNumericAttribute(EventAttr attr) const;
     bool isBooleanAttribute(EventAttr attr) const;
@@ -412,10 +461,7 @@ public:
     bool setValue(EventAttr attr, __uint64 value);
     bool setValue(EventAttr attr, bool value);
     // Ambiguity resolution: ensures unsigned values are correctly cast to __uint64 and routed to the intended overload.
-    inline bool setValue(EventAttr attr, unsigned value)
-    {
-        return setValue(attr, __uint64(value));
-    }
+    bool setValue(EventAttr attr, unsigned value) { return setValue(attr, __uint64(value)); }
     void fixup(const struct EventFileProperties& fileProps);
 
 public:
@@ -432,6 +478,11 @@ private:
 
 protected:
     EventType type{EventNone};
+    // POOLING MODEL: Events own a single pool of StringBuffer objects (one per text-capable attribute).
+    // Each text attribute in the event is bound to a pointer to its dedicated pool buffer via bindText().
+    // This pooling reduces memory allocations from O(EvAttrMax * event_count) to O(EvAttrTextCount),
+    // yielding significant performance gains. Pool buffers are cleared together during event reset().
+    StringBuffer textPool[EvAttrTextCount];
     CEventAttribute attributes[EvAttrMax];
 public:
     AssignedAttributes assignedAttributes;
@@ -586,7 +637,7 @@ protected:
         return isEventEnabled(queryEventContext(event));
     }
 
-    inline void writeTraceId(offset_type & offset, const char* traceid)
+    void writeTraceId(offset_type & offset, const char* traceid)
     {
         assertex(strlen(traceid) == 32);
         for (unsigned i=0; i < 32; i += 2)

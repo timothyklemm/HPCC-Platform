@@ -225,10 +225,12 @@ struct EventAttrInformation
     EventAttrUnit unit;
 };
 
+#define DEFINE_ATTR(tag, type, unit) { EvAttr##tag, #tag, EAT##type, attrTypeSizes[EAT##type], attrTypeClasses[EAT##type], EAU##unit },
+
 static constexpr EventAttrInformation attrInformation[] = {
-    { EvAttrNone, "None", EATnone, attrTypeSizes[EATnone], attrTypeClasses[EATnone], EAUnone },
-    FOR_EACH_EVENT_ATTR_VALUE(DEFINE_EVENTATTR_INFO)
+    FOR_EACH_EVENT_ATTRIBUTE_WITH_UNIT(DEFINE_ATTR)
 };
+#undef DEFINE_ATTR
 
 static_assert(_elements_in(attrInformation) == EvAttrMax);
 
@@ -1659,10 +1661,6 @@ EventRecorder eventRecorder;
 
 #define ASSERT_ATTR(a) assertex(EvAttrNone < a && a < EvAttrMax)
 
-EventAttr CEventAttribute::queryId() const
-{
-    return id;
-}
 
 EventAttrTypeClass CEventAttribute::queryTypeClass() const
 {
@@ -1671,15 +1669,15 @@ EventAttrTypeClass CEventAttribute::queryTypeClass() const
 
 const char* CEventAttribute::queryTextValue() const
 {
-    assertex(isText());
+    assertex(isText() && text);
     if (isTimestamp())
     {
         CDateTime dt;
         dt.setTimeStampNs(number);
-        text.clear();
-        dt.getDateTimeString(text, true, true, DTP_Nanos, false);
+        text->clear();
+        dt.getDateTimeString(*text, true, true, DTP_Nanos, false);
     }
-    return text;
+    return text->str();
 }
 
 __uint64 CEventAttribute::queryNumericValue() const
@@ -1703,14 +1701,16 @@ void CEventAttribute::setup(EventAttr attr)
 void CEventAttribute::reset(State _state)
 {
     state = _state;
-    text.clear();
+    if (text)
+        text->clear();
     number = 0;
     boolean = false;
 }
 
 void CEventAttribute::setValue(const char* value)
 {
-    assertex(isText() && !isUnused());
+    assertex(isText() && !isUnused() && text);
+    text->clear();
     if (isTimestamp())
     {
         if (strchr(value, '-')) // hyphen hints at a formatted date/time string
@@ -1723,7 +1723,7 @@ void CEventAttribute::setValue(const char* value)
             number = strtoull(value, nullptr, 0);
     }
     else
-        text.set(value);
+        text->append(value);
     state = Assigned;
 }
 
@@ -1753,22 +1753,8 @@ void CEvent::AssignedAttributes::const_iterator::nextAssigned()
         ++cur;
 }
 
-EventType CEvent::queryType() const
-{
-    return type;
-}
 
-bool CEvent::isAttribute(EventAttr attr) const
-{
-    ASSERT_ATTR(attr);
-    return !attributes[attr].isUnused();
-}
 
-bool CEvent::hasAttribute(EventAttr attr) const
-{
-    ASSERT_ATTR(attr);
-    return attributes[attr].isAssigned();
-}
 
 bool CEvent::isComplete() const
 {
@@ -1786,17 +1772,7 @@ bool CEvent::isComplete() const
     return true;
 }
 
-CEventAttribute& CEvent::queryAttribute(EventAttr attr)
-{
-    ASSERT_ATTR(attr);
-    return attributes[attr];
-}
 
-const CEventAttribute& CEvent::queryAttribute(EventAttr attr) const
-{
-    ASSERT_ATTR(attr);
-    return attributes[attr];
-}
 
 bool CEvent::isTextAttribute(EventAttr attr) const
 {
@@ -1882,13 +1858,37 @@ bool CEvent::setValue(EventAttr attr, bool value)
     return false;
 }
 
+struct PoolIndexer
+{
+    int index[EvAttrMax];
+    PoolIndexer()
+    {
+        int current = 0;
+        for (unsigned i = 0; i < EvAttrMax; i++)
+        {
+            if (isEventAttrText(attrInformation[i].type))
+                index[i] = current++;
+            else
+                index[i] = -1;
+        }
+        assertex(current == EvAttrTextCount);
+    }
+};
+
+static PoolIndexer g_poolIndexer;
+
 CEvent::CEvent()
     : assignedAttributes(*this)
     , definedAttributes(*this)
     , allAttributes(*this)
 {
     for (unsigned i = EvAttrNone + 1; i < EvAttrMax; i++)
+    {
         attributes[i].setup(EventAttr(i));
+        int pIndex = g_poolIndexer.index[i];
+        if (pIndex != -1)
+            attributes[i].bindText(&textPool[pIndex]);
+    }
 }
 
 CEvent::CEvent(const CEvent& other)
@@ -1931,8 +1931,13 @@ void CEvent::reset(EventType _type)
 {
     assertex(_type < EventMax);
     type = _type;
-    for (unsigned idx = EvAttrNone; idx < EvAttrMax; idx++)
-        attributes[idx].reset(eventAttributeStates.states[type][idx]);
+
+    for (unsigned i = 0; i < EvAttrTextCount; i++) {
+        textPool[i].clear();
+    }
+    for (unsigned idx = EvAttrNone; idx < EvAttrMax; idx++) {
+        attributes[idx].resetWithoutText(eventAttributeStates.states[type][idx]);
+    }
 }
 
 void CEvent::changeEventType(EventType newType)
